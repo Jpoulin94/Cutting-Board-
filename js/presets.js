@@ -10,8 +10,8 @@
     C: 'sp_cherry',
     P: 'sp_purpleheart',
     R: 'sp_padauk',
-    O: 'sp_whiteoak',
-    Y: 'sp_yellowheart',
+    G: 'sp_wenge',
+    H: 'sp_mahogany',
     Z: 'sp_zebrawood',
   };
   const accent = (species, alternate = false) => ({ enabled: true, angle: 60, offset: 0.2, thickness: IN / 8, species, on: 'all', alternate });
@@ -75,9 +75,9 @@
       design: { pattern: 'stripes', strips: strips('M3.5 W.5 P1 W.5 M3.5'), rows: 8, rowDepth: 1.5 * IN, thickness: 1.5 * IN },
     },
     {
-      name: 'Walnut to maple fade',
-      blurb: 'Stripes that fade from dark edges to a light centre.',
-      design: { pattern: 'stripes', strips: strips('W1 W1 C1 C1 O1 M1 M1 O1 C1 C1 W1 W1'), rows: 16, rowDepth: IN, thickness: 1.5 * IN },
+      name: 'Wenge to maple fade',
+      blurb: 'Wenge, walnut, mahogany, cherry and zebrawood fading to a maple centre.',
+      design: { pattern: 'stripes', strips: strips('G1 W1 H1 C1 Z1 M1 M1 Z1 C1 H1 W1 G1'), rows: 16, rowDepth: IN, thickness: 1.5 * IN },
     },
     {
       name: 'Butcher block',
@@ -99,13 +99,13 @@
     },
     {
       name: 'Walnut frame',
-      blurb: 'Maple and white oak checks inside a walnut border.',
+      blurb: 'Maple and zebrawood checks inside a walnut border.',
       design: {
         pattern: 'plaid',
         panels: [
           { id: 'pA', name: 'A', thickness: IN, strips: strips('W12') },
-          { id: 'pB', name: 'B', thickness: 1.5 * IN, strips: strips('W1 M2 O2 M2 O2 M2 W1') },
-          { id: 'pC', name: 'C', thickness: 1.5 * IN, strips: strips('W1 O2 M2 O2 M2 O2 W1') },
+          { id: 'pB', name: 'B', thickness: 1.5 * IN, strips: strips('W1 M2 Z2 M2 Z2 M2 W1') },
+          { id: 'pC', name: 'C', thickness: 1.5 * IN, strips: strips('W1 Z2 M2 Z2 M2 Z2 W1') },
         ],
         rowPlan: plan('ABCBCBCBCA', { A: 'pA', B: 'pB', C: 'pC' }),
         thickness: 1.5 * IN,

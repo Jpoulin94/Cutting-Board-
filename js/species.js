@@ -17,14 +17,14 @@
   // Starting list. Prices start blank for you to fill in.
   function defaults() {
     return [
-      ['sp_maple', 'Hard maple', '#ead9b8'],
       ['sp_walnut', 'Black walnut', '#4b3428'],
-      ['sp_cherry', 'Cherry', '#a8603c'],
+      ['sp_maple', 'Hard maple', '#ead9b8'],
+      ['sp_zebrawood', 'Zebrawood', '#c9a46c'],
       ['sp_purpleheart', 'Purpleheart', '#6e2f55'],
       ['sp_padauk', 'Padauk', '#c4461f'],
-      ['sp_whiteoak', 'White oak', '#c8a679'],
-      ['sp_yellowheart', 'Yellowheart', '#e3b53b'],
-      ['sp_zebrawood', 'Zebrawood', '#c9a46c'],
+      ['sp_wenge', 'Wenge', '#2e221c'],
+      ['sp_mahogany', 'Mahogany', '#8b4a31'],
+      ['sp_cherry', 'Cherry', '#a8603c'],
     ].map(([id, name, color]) => ({ id, name, color, price: null, supplier: '', lastBought: '', notes: '' }));
   }
 

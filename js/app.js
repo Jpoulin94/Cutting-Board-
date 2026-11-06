@@ -9,6 +9,16 @@
 
   let prefs = storage.loadPrefs();
   let speciesList = storage.loadSpecies();
+  // Add woods that joined the starting list since this browser last saved it.
+  if ((prefs.speciesVersion || 1) < 2) {
+    const missing = CB.species.defaults().filter((x) => !speciesList.some((y) => y.id === x.id));
+    if (missing.length) {
+      speciesList = speciesList.concat(missing);
+      storage.saveSpecies(speciesList);
+    }
+    prefs.speciesVersion = 2;
+    storage.savePrefs(prefs);
+  }
   let design = storage.loadCurrent() || freshDesign('My first board');
   let result = null;
   let selected = null;
