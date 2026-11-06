@@ -154,7 +154,7 @@
         <button class="small" data-act="mirror" data-ctx="${ctx}">Mirror</button>
       </div>
       <div class="fill">Turn
-        <select class="plain" data-turn-which="${ctx}"><option value="even">every other strip</option><option value="all">all strips</option></select> by
+        <select class="plain" data-turn-which="${ctx}"><option value="checker">in a checkerboard</option><option value="even">every other strip</option><option value="all">all strips</option></select> by
         <select class="plain" data-turn-deg="${ctx}"><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option><option value="0">0° (reset)</option></select>
         <button class="small" data-act="turnBulk" data-ctx="${ctx}">Apply</button>
       </div>
@@ -472,7 +472,21 @@
       case 'turnBulk': {
         const which = $(`[data-turn-which="${ctx}"]`).value;
         const deg = Number($(`[data-turn-deg="${ctx}"]`).value);
-        return commit(() => stripsOf(ctx).forEach((st, i) => {
+        const list = stripsOf(ctx);
+        if (which === 'checker') {
+          // Turn every other stick, then turn every other row end for end:
+          // with an even strip count that moves the turned squares over one
+          // column on alternate rows, like a checkerboard.
+          if (ctx !== 'main' || !['stripes', 'checker'].includes(design.pattern)) {
+            return toast('Checkerboard turning works with End grain stripes or Checkerboard.');
+          }
+          if (list.length % 2) return toast('Use an even number of strips so the turned squares alternate on every row.');
+          return commit((d) => {
+            list.forEach((st, i) => (st.rot = i % 2 === 1 ? deg : 0));
+            if (d.pattern === 'stripes') d.rowTurn = true;
+          });
+        }
+        return commit(() => list.forEach((st, i) => {
           if (which === 'all' || i % 2 === 1) st.rot = deg;
         }));
       }

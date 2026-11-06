@@ -199,3 +199,21 @@ test('turning a stick turns its accent; every other row can turn too', () => {
   n.rowTurn = true;
   assert.equal(engine.compute(n, species.defaults()).rows[1].flip, true);
 });
+
+test('checkerboard turning: turned squares alternate in both directions', () => {
+  const d = engine.newDesign('Checker turns');
+  d.pattern = 'stripes';
+  d.rowTurn = true;
+  d.strips = d.strips.map((s, i) => ({ ...s, species: 'sp_walnut', rot: i % 2 ? 90 : 0 }));
+  d.accent = { ...engine.DEFAULT_ACCENT, enabled: true, offset: 0, species: 'sp_purpleheart' };
+  const r = engine.compute(engine.normalizeDesign(d), species.defaults());
+  const steep = (b) => {
+    const xs = b.accent.poly.map((p) => p[0]);
+    const ys = b.accent.poly.map((p) => p[1]);
+    return Math.max(...ys) - Math.min(...ys) > Math.max(...xs) - Math.min(...xs);
+  };
+  const at = (row, col) => steep(r.blocks.filter((b) => b.row === row)[col]);
+  assert.notEqual(at(0, 0), at(0, 1));
+  assert.notEqual(at(0, 0), at(1, 0));
+  assert.equal(at(0, 0), at(1, 1));
+});
