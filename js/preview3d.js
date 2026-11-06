@@ -58,6 +58,7 @@
     set(result, speciesList, selected) {
       this.result = result;
       this.colors = Object.fromEntries(speciesList.map((s) => [s.id, s.color]));
+      this.streaks = Object.fromEntries(speciesList.filter((s) => s.streak).map((s) => [s.id, s.streak]));
       this.names = Object.fromEntries(speciesList.map((s) => [s.id, s.name]));
       this.selected = selected || null;
       this.draw();
@@ -274,7 +275,8 @@
           ctx.fillStyle = rgb(c0, k);
           poly(ctx, pts);
           ctx.fill();
-          if (!this.fast) this.longGrain(ctx, pts, c0, b);
+          if (this.streaks[b.species]) this.longStreaks(ctx, pts, b, hexRgb(this.streaks[b.species]), k);
+          else if (!this.fast) this.longGrain(ctx, pts, c0, b);
           ctx.strokeStyle = 'rgba(0,0,0,0.18)';
           ctx.lineWidth = 0.6;
           ctx.stroke();
@@ -294,7 +296,8 @@
         ctx.fillStyle = rgb(c0, 0.97 + rnd() * 0.07);
         poly(ctx, pts);
         ctx.fill();
-        if (!this.fast) this.endGrain(ctx, affine, b, c0, rnd);
+        if (this.streaks[b.species]) this.endStreaks(ctx, affine, b, hexRgb(this.streaks[b.species]), rnd);
+        else if (!this.fast) this.endGrain(ctx, affine, b, c0, rnd);
         if (b.accent) {
           const ac = col(b.accent.species);
           ctx.fillStyle = rgb(ac);
@@ -356,6 +359,79 @@
         ctx.beginPath();
         ctx.arc(cx, cy, rr, 0, Math.PI * 2);
         ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // Bold, uneven dark bands, like zebrawood's end grain: growth rings
+    // from a far-off pith, so they read as wavy, nearly parallel stripes.
+    endStreaks(ctx, affine, b, sc, rnd) {
+      const size = Math.max(b.w, b.d);
+      const ang = rnd() * Math.PI * 2;
+      const far = size * (2.2 + rnd() * 2.5);
+      const cx = b.x + b.w / 2 + Math.cos(ang) * far;
+      const cy = b.y + b.d / 2 + Math.sin(ang) * far;
+      const r0 = far - size * 0.8;
+      const r1 = far + size * 0.8;
+      const wob = 0.004 + rnd() * 0.006;
+      const k1 = 2 + rnd() * 3;
+      const ph = rnd() * 6.28;
+      const steps = this.fast ? 28 : 90;
+      ctx.save();
+      ctx.transform(...affine);
+      ctx.beginPath();
+      ctx.rect(b.x, b.y, b.w, b.d);
+      ctx.clip();
+      const ring = (r) => {
+        ctx.beginPath();
+        for (let i = 0; i <= steps; i++) {
+          const t = ang + Math.PI + ((i / steps) - 0.5) * 1.2;
+          const rr = r * (1 + wob * Math.sin((k1 * (t - ang)) / 0.2 + ph));
+          const x = cx + Math.cos(t) * rr;
+          const y = cy + Math.sin(t) * rr;
+          i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        }
+      };
+      let r = r0;
+      while (r < r1) {
+        const gap = size * (0.1 + rnd() * 0.14);
+        const band = gap * (0.18 + rnd() * 0.32);
+        ctx.strokeStyle = `rgba(${sc[0]},${sc[1]},${sc[2]},${0.65 + rnd() * 0.3})`;
+        ctx.lineWidth = band;
+        ring(r);
+        ctx.stroke();
+        if (rnd() < 0.5) {
+          ctx.strokeStyle = `rgba(${sc[0]},${sc[1]},${sc[2]},0.25)`;
+          ctx.lineWidth = band * 0.35;
+          ring(r + band * 0.9);
+          ctx.stroke();
+        }
+        r += gap;
+      }
+      ctx.restore();
+    }
+
+    longStreaks(ctx, pts, b, sc, k) {
+      // Dark stripes running up the board's sides.
+      const [p0, p1, p2] = pts;
+      const rnd = rand(Math.round(b.x * 13 + b.y * 71 + 9));
+      const up = [p2[0] - p1[0], p2[1] - p1[1]];
+      const len = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+      ctx.save();
+      poly(ctx, pts);
+      ctx.clip();
+      let t = rnd() * 0.1;
+      while (t < 1) {
+        const w = 0.02 + rnd() * 0.05;
+        const ax = p0[0] + (p1[0] - p0[0]) * t;
+        const ay = p0[1] + (p1[1] - p0[1]) * t;
+        ctx.strokeStyle = `rgba(${Math.round(sc[0] * k)},${Math.round(sc[1] * k)},${Math.round(sc[2] * k)},${0.7 + rnd() * 0.25})`;
+        ctx.lineWidth = Math.max(0.6, w * len);
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(ax + up[0] + (rnd() - 0.5) * 3, ay + up[1]);
+        ctx.stroke();
+        t += 0.07 + rnd() * 0.12;
       }
       ctx.restore();
     }

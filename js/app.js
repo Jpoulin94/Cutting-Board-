@@ -19,6 +19,18 @@
     prefs.speciesVersion = 2;
     storage.savePrefs(prefs);
   }
+  // Zebrawood gained its dark stripes.
+  if ((prefs.speciesVersion || 1) < 3) {
+    const z = speciesList.find((x) => x.id === 'sp_zebrawood');
+    if (z && !z.streak && z.color.toLowerCase() === '#c9a46c') {
+      const def = CB.species.defaults().find((x) => x.id === 'sp_zebrawood');
+      z.color = def.color;
+      z.streak = def.streak;
+      storage.saveSpecies(speciesList);
+    }
+    prefs.speciesVersion = 3;
+    storage.savePrefs(prefs);
+  }
   let design = storage.loadCurrent() || freshDesign('My first board');
   let result = null;
   let selected = null;
@@ -685,13 +697,14 @@
     const used = new Set(result.panels.flatMap((p) => p.strips.map((s) => s.species)));
     const row = (s) => `<tr data-id="${s.id}">
       <td><input type="color" data-f="color" value="${s.color}" aria-label="Colour"/></td>
+      <td class="streak-cell"><label title="Dark stripes or streaks in the grain"><input type="checkbox" data-f="hasStreak"${s.streak ? ' checked' : ''}/></label><input type="color" data-f="streak" value="${s.streak || '#3a2414'}" aria-label="Stripe colour"${s.streak ? '' : ' disabled'}/></td>
       <td><input class="plain" data-f="name" value="${esc(s.name)}" style="width:140px" aria-label="Name"/></td>
       <td><div class="inp" style="width:96px"><span style="padding:0 0 0 7px">$</span><input type="number" step="0.01" min="0" data-f="price" value="${s.price ?? ''}" placeholder="0.00" aria-label="Price per board foot"/></div></td>
       <td><input class="plain" data-f="supplier" value="${esc(s.supplier)}" style="width:170px" placeholder="Where you bought it" aria-label="Last purchased from"/></td>
       <td><input class="plain" type="date" data-f="lastBought" value="${esc(s.lastBought)}" aria-label="Last purchase date"/></td>
       <td><input class="plain" data-f="notes" value="${esc(s.notes)}" style="width:140px" aria-label="Notes"/></td>
       <td><button type="button" class="x" data-del title="${used.has(s.id) ? 'Used in this board' : 'Delete'}"${used.has(s.id) ? ' disabled' : ''}>✕</button></td></tr>`;
-    const body = () => `<div class="species-wrap"><table class="species-table"><thead><tr><th></th><th>Species</th><th>$ / bf</th><th>Last purchased from</th><th>Date</th><th>Notes</th><th></th></tr></thead>
+    const body = () => `<div class="species-wrap"><table class="species-table"><thead><tr><th>Colour</th><th>Stripes</th><th>Species</th><th>$ / bf</th><th>Last purchased from</th><th>Date</th><th>Notes</th><th></th></tr></thead>
       <tbody>${work.map(row).join('')}</tbody></table></div>
       <div class="row-actions"><button type="button" class="small" data-add>+ Add species</button></div>`;
     const res = await dialog('Species library', body(), [{ label: 'Cancel', value: 'cancel', cls: 'ghost' }, { label: 'Save', value: 'save', cls: 'primary' }], (dlg) => {
@@ -702,6 +715,11 @@
         const s = work.find((x) => x.id === tr.dataset.id);
         const f = e.target.dataset.f;
         if (f === 'price') s.price = e.target.value === '' ? null : Number(e.target.value);
+        else if (f === 'hasStreak') {
+          const picker = tr.querySelector('[data-f="streak"]');
+          picker.disabled = !e.target.checked;
+          s.streak = e.target.checked ? picker.value : '';
+        }
         else s[f] = e.target.value;
       };
       wrap.onclick = (e) => {

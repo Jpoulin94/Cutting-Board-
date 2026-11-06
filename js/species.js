@@ -11,7 +11,7 @@
   }
 
   function newSpecies(name = 'New species', color = '#b08a5a') {
-    return { id: uid(), name, color, price: null, supplier: '', lastBought: '', notes: '' };
+    return { id: uid(), name, color, streak: '', price: null, supplier: '', lastBought: '', notes: '' };
   }
 
   // Starting list. Prices start blank for you to fill in.
@@ -19,13 +19,13 @@
     return [
       ['sp_walnut', 'Black walnut', '#4b3428'],
       ['sp_maple', 'Hard maple', '#ead9b8'],
-      ['sp_zebrawood', 'Zebrawood', '#c9a46c'],
+      ['sp_zebrawood', 'Zebrawood', '#bd9860', '#3a2414'],
       ['sp_purpleheart', 'Purpleheart', '#6e2f55'],
       ['sp_padauk', 'Padauk', '#c4461f'],
       ['sp_wenge', 'Wenge', '#2e221c'],
       ['sp_mahogany', 'Mahogany', '#8b4a31'],
       ['sp_cherry', 'Cherry', '#a8603c'],
-    ].map(([id, name, color]) => ({ id, name, color, price: null, supplier: '', lastBought: '', notes: '' }));
+    ].map(([id, name, color, streak = '']) => ({ id, name, color, streak, price: null, supplier: '', lastBought: '', notes: '' }));
   }
 
   function normalize(list) {
@@ -36,6 +36,7 @@
         id: s.id,
         name: String(s.name || 'Unnamed'),
         color: /^#[0-9a-f]{6}$/i.test(s.color) ? s.color : '#b08a5a',
+        streak: /^#[0-9a-f]{6}$/i.test(s.streak) ? s.streak : '',
         price: Number.isFinite(Number(s.price)) && s.price !== null && s.price !== '' ? Number(s.price) : null,
         supplier: String(s.supplier || ''),
         lastBought: String(s.lastBought || ''),

@@ -806,6 +806,15 @@ dialog menu {
   padding: 1px;
   background: var(--panel);
 }
+.streak-cell {
+  white-space: nowrap;
+}
+.streak-cell label {
+  margin-right: 4px;
+}
+.species-table input[type='color']:disabled {
+  opacity: 0.3;
+}
 .species-wrap {
   max-height: 60vh;
   overflow: auto;
