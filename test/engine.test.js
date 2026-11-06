@@ -274,32 +274,37 @@ test('edge details are kept and cleaned up', () => {
   assert.equal(engine.compute(d, species.defaults()).details.groove, true);
 });
 
-test('honeycomb and 3D cubes cover the board and count their sticks', () => {
+test('honeycomb and 3D cubes cover the board and build row by row', () => {
   const sp = species.defaults();
   const { planner, presets } = require('./load');
   const areaOf = (poly) => Math.abs(poly.reduce((a, p, i) => { const q = poly[(i + 1) % poly.length]; return a + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
   for (const pattern of ['honeycomb', 'cubes']) {
     const d = engine.normalizeDesign({ ...engine.newDesign('t'), pattern });
     const r = engine.compute(d, sp);
+    const t = r.tiles;
     near(r.board.width, 12 * IN, `${pattern} width`);
     const covered = r.blocks.reduce((a, b) => a + areaOf(b.poly), 0);
     assert.ok(Math.abs(covered / (r.board.width * r.board.length) - 1) < 1e-6, `${pattern} covers the board`);
-    assert.equal(r.lumber.reduce((a, l) => a + l.sticks, 0), r.tiles.sticks);
-    // Sticks are cut from long rips; enough of them for every short stick.
-    for (const l of r.lumber) assert.ok(l.long * r.tiles.perRip >= l.sticks);
-    // Slice length is board thickness + flattening; each stick also has end trim and one kerf.
-    near(r.tiles.stickLength, d.settings.endTrim + (d.thickness + d.settings.flatten + d.settings.kerfCross), `${pattern} stick length`);
+    // Long sticks: every panel's sticks are counted once in the lumber.
+    assert.equal(r.lumber.reduce((a, l) => a + l.sticks, 0), t.panels.reduce((a, p) => a + p.sticks.length, 0));
+    // Every row of the board comes from one panel; slices add up.
+    assert.equal(t.panels.reduce((a, p) => a + p.rows, 0), t.rows.length);
+    assert.equal(r.total.cuts, t.rows.length * t.boards);
+    for (const p of t.panels) near(p.length, d.settings.endTrim + p.slices * (d.thickness + d.settings.flatten + d.settings.kerfCross), `${pattern} panel length`);
     const keys = planner.steps(d, r, sp, { units: 'in', precision: 16 }).map((s) => s.key);
-    assert.deepEqual(keys, ['mill', 'sticks', 'cut', 'log', 'slice', 'trim', 'finish']);
+    assert.deepEqual(keys, ['mill', 'sticks', ...t.panels.map((p) => `row-${p.id}`), 'crosscut', 'layout', 'glue2', 'trim', 'finish']);
   }
-  // Every diamond side matches the size, and hexagons are regular.
+  // Cubes: every row is the same, so one panel. Three-wood honeycomb: two.
   const cubes = engine.compute(engine.normalizeDesign({ ...engine.newDesign('c'), pattern: 'cubes' }), sp);
-  const pc = cubes.tiles.pieces[0].poly;
+  assert.equal(cubes.tiles.panels.length, 1);
+  const pc = cubes.tiles.panels[0].end[0].poly;
   for (let i = 0; i < 4; i++) near(Math.hypot(pc[i][0] - pc[(i + 1) % 4][0], pc[i][1] - pc[(i + 1) % 4][1]), IN, 'diamond side');
-  // Three-wood honeycomb: no two neighbours alike.
-  const hc = engine.compute(engine.normalizeDesign({ ...engine.newDesign('h'), pattern: 'honeycomb' }), sp).tiles.pieces;
-  const cen = (p) => [p.poly.reduce((a, q) => a + q[0], 0) / 6, p.poly.reduce((a, q) => a + q[1], 0) / 6];
-  for (const a of hc) for (const b of hc) {
+  const hcR = engine.compute(engine.normalizeDesign({ ...engine.newDesign('h'), pattern: 'honeycomb' }), sp);
+  assert.equal(hcR.tiles.panels.length, 2);
+  // Three-wood honeycomb: no two neighbouring hexagons alike.
+  const full = hcR.blocks.filter((b) => b.poly.length === 6);
+  const cen = (b) => [b.poly.reduce((a, q) => a + q[0], 0) / 6, b.poly.reduce((a, q) => a + q[1], 0) / 6];
+  for (const a of full) for (const b of full) {
     if (a === b) continue;
     const [ax, ay] = cen(a);
     const [bx, by] = cen(b);

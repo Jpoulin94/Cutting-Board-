@@ -433,11 +433,9 @@
     const out = {};
     const IN = 25.4;
     const t = r.tiles;
-    const S = r.settings;
     const cubes = t.kind === 'cubes';
     const s = t.size;
     const sh = t.shape;
-    // The stick's end lying on the bench, in (x, z).
     const endPts = cubes
       ? [[s / 2, 0], [s * 1.5, 0], [s, sh.thickness], [0, sh.thickness]]
       : [[s / 2, 0], [s * 1.5, 0], [2 * s, sh.thickness / 2], [s * 1.5, sh.thickness], [s / 2, sh.thickness], [0, sh.thickness / 2]];
@@ -447,11 +445,11 @@
     {
       const boxes = [];
       let x = 0;
-      for (const l of r.lumber) {
-        const p = l.pieces[0];
-        boxes.push({ x, y: 0, z: 0, w: p.width, d: p.length, h: p.thickness, species: l.species, grain: 'y' });
-        x += p.width + IN;
-      }
+      for (const l of r.lumber)
+        for (const p of l.pieces) {
+          boxes.push({ x, y: 0, z: 0, w: p.width, d: p.length, h: p.thickness, species: l.species, grain: 'y' });
+          x += p.width + IN;
+        }
       out.mill = { boxes };
     }
 
@@ -459,10 +457,10 @@
     {
       const boxes = [];
       let x = 0;
-      const shown = Math.min(t.ripLength, 16 * IN);
+      const len = t.panels[0].length;
       r.lumber.forEach((l, li) => {
-        for (let i = 0; i < Math.min(3, l.long); i++) {
-          boxes.push(prismItem(endPts.map(([u, v]) => [u + x, v]), 'y', 0, shown, l.species, li * 17 + i * 5 + 3));
+        for (let i = 0; i < Math.min(3, l.sticks); i++) {
+          boxes.push(prismItem(endPts.map(([u, v]) => [u + x, v]), 'y', 0, len, l.species, li * 17 + i * 5 + 3));
           x += span + s * 0.5;
         }
         x += s;
@@ -470,25 +468,33 @@
       out.sticks = { boxes };
     }
 
-    // Short sticks cut from them.
+    // Each row panel: the sticks glued side by side, lying down.
+    const lying = (pan, y0, len) =>
+      pan.end.map((pc, i) => prismItem(pc.poly.map(([x, y]) => [x, pan.depth - y]), 'y', y0, len, pc.species, i * 7 + 1, pc.rot));
+    for (const pan of t.panels) out[`row-${pan.id}`] = { boxes: lying(pan, 0, pan.length) };
+
+    // The first panel crosscut into slices, pulled apart.
     {
+      const pan = t.panels[0];
       const boxes = [];
-      r.lumber.forEach((l, li) => {
-        for (let i = 0; i < 4; i++) {
-          boxes.push(prismItem(endPts.map(([u, v]) => [u + i * (span + s * 0.6), v]), 'y', li * (t.stickLength + s * 1.2), t.stickLength, l.species, li * 17 + i * 5 + 3));
-        }
-      });
-      out.cut = { boxes };
+      const n = Math.min(pan.slices, 8);
+      for (let j = 0; j < n; j++) boxes.push(...lying(pan, j * (t.sliceLength * 1.8), t.sliceLength));
+      out.crosscut = { boxes };
     }
 
-    // The log, end grain up, and slices from it.
-    const E = S.edgeTrim;
-    const logItems = (h, lift = 0) => t.pieces.map((pc, i) => prismItem(pc.poly.map(([x, y]) => [x + E, y + E]), 'z', lift, h, pc.species, i * 7 + 1, pc.rot));
-    out.log = { boxes: logItems(t.stickLength), pitch: 40 };
-    out.slice = { boxes: logItems(t.sliceLength), pitch: 40 };
-    const boardItems = r.blocks.map((b, i) => prismItem(b.poly, 'z', 0, r.board.thickness, b.species, i * 7 + 1, b.rot));
-    out.trim = { boxes: boardItems, pitch: 40 };
-    out.finish = { boxes: boardItems, yaw: -38, pitch: 42 };
+    // The rows end grain up: apart for the layout, then together.
+    const rowIndex = Object.fromEntries(t.rows.map((x, i) => [x.r, i]));
+    const gap = Math.max(IN * 0.4, r.board.length * 0.03);
+    const standing = (g) => r.blocks.map((b, i) => prismItem(b.poly.map(([x, y]) => [x, y + rowIndex[b.row] * g]), 'z', 0, r.board.thickness, b.species, i * 7 + 1, b.rot));
+    out.layout = {
+      boxes: standing(gap),
+      labels: t.rows.map((row, i) => ({ x: -IN * 0.7, y: Math.max(0, row.y0) + i * gap + s * 0.7, z: r.board.thickness, text: `${i + 1}${t.panels.length > 1 ? ` ${row.name}` : ''}` })),
+      pitch: 40,
+    };
+    const together = standing(0);
+    out.glue2 = { boxes: together, pitch: 40 };
+    out.trim = { boxes: together, pitch: 40 };
+    out.finish = { boxes: together, yaw: -38, pitch: 42 };
     return out;
   }
 

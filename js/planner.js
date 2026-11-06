@@ -4,70 +4,77 @@
   const CB = (root.CB = root.CB || {});
 
   function tileSteps(design, r, speciesList, prefs) {
-    const { esc } = CB.sheet;
+    const { esc, stickSvg, rowPanelSvg } = CB.sheet;
     const fmt = (mm) => CB.units.format(mm, prefs);
     const S = r.settings;
     const t = r.tiles;
     const cubes = t.kind === 'cubes';
+    const shape = cubes ? 'diamond' : 'hexagon';
     const sp = (id) => CB.species.byId(speciesList, id);
     const sw = (id) => `<i class="sw" style="background:${sp(id).color}"></i>`;
     const out = [];
     const add = (key, title, lead, body) => out.push({ key, title, lead, body });
-    const faceNames = ['top', 'left', 'right'];
+    const many = t.panels.length > 1;
 
     add(
       'mill',
       'Mill your lumber',
-      `Plane every board to ${fmt(t.shape.thickness)} thick.`,
-      `<table class="t"><thead><tr><th>Wood</th><th>Thickness</th><th>Width</th><th>Length</th><th>Rough stock</th></tr></thead><tbody>${r.lumber
-        .map((l) => {
-          const p = l.pieces[0];
-          return `<tr><td>${sw(l.species)}${esc(l.name)}</td><td>${fmt(p.thickness)}</td><td>${fmt(p.width)}</td><td>${fmt(p.length)}</td><td class="muted">${p.rough.laminate ? `${p.rough.layers} × 8/4 glued up` : `${p.rough.quarters}/4`}</td></tr>`;
-        })
+      `Plane every board to ${fmt(t.shape.thickness + S.panelPlane)} thick.`,
+      `<table class="t"><thead><tr><th>Wood</th><th>Width</th><th>Length</th><th>Rough stock</th>${many ? '<th>For</th>' : ''}</tr></thead><tbody>${r.lumber
+        .flatMap((l) => l.pieces.map((p) => `<tr><td>${sw(l.species)}${esc(l.name)}</td><td>${fmt(p.width)}</td><td>${fmt(p.length)}</td><td class="muted">${p.rough.laminate ? `${p.rough.layers} × 8/4 glued up` : `${p.rough.quarters}/4`}</td>${many ? `<td>${esc(p.panel)}</td>` : ''}</tr>`))
         .join('')}</tbody></table>
-      <p class="note">Plane them all in one session so every stick comes out the same thickness. The thickness is ${cubes ? 'the height of a diamond' : 'the hexagon across its flats'}.</p>`
+      <p class="note">Plane them all in one session so every stick comes out the same.</p>`
     );
 
     add(
       'sticks',
-      cubes ? 'Rip the diamond sticks' : 'Make the hexagon sticks',
+      cubes ? `Rip ${t.sticks} diamond sticks` : `Make ${t.sticks} hexagon sticks`,
       cubes
-        ? `Tilt the blade 30\u00b0. Rip a starting bevel, then rip diamonds ${fmt(t.size)} along the face.`
-        : `Rip blanks ${fmt(t.shape.width)} wide, then tilt the blade 30\u00b0 and bevel all four corners.`,
-      `${CB.sheet.stickSvg(t, sp(t.woods[0]).color, fmt)}
-      <table class="t"><thead><tr><th>Wood</th><th>Long sticks</th><th>Length</th>${cubes ? '<th>Used for</th>' : ''}</tr></thead><tbody>${r.lumber
-        .map((l) => `<tr><td>${sw(l.species)}${esc(l.name)}</td><td>${l.long}</td><td>${fmt(t.ripLength)}</td>${cubes ? `<td>${t.woods.map((w, i) => (w === l.species ? faceNames[i] : null)).filter(Boolean).join(', ')} faces</td>` : ''}</tr>`)
+        ? `Tilt the blade 30°. Rip a starting bevel, then rip diamonds ${fmt(t.size)} along the face.`
+        : `Rip blanks ${fmt(t.shape.width)} wide, then tilt the blade 30° and bevel all four corners.`,
+      `${stickSvg(t, sp(t.woods[0]).color, fmt)}
+      <table class="t"><thead><tr><th>Wood</th><th>Sticks</th><th>Length</th>${many ? '<th>For</th>' : ''}</tr></thead><tbody>${r.lumber
+        .flatMap((l) => l.rips.map((x) => `<tr><td>${sw(l.species)}${esc(l.name)}</td><td>${x.count}</td><td>${fmt(x.length)}</td>${many ? `<td>${esc(x.panel)}</td>` : ''}</tr>`))
         .join('')}</tbody></table>
-      <p class="note">${cubes ? `At this angle each rip uses ${fmt(t.kerfAngle)} of width. Every side should measure ${fmt(t.size)}.` : `Every side should measure ${fmt(t.size)}. Make a test stick first and check it against the others.`} Use a push block; these are small parts.</p>`
+      <p class="note">${cubes ? `At this angle each rip uses ${fmt(t.kerfAngle)} of width.` : 'Make a test stick first.'} Every side should be ${fmt(t.size)}. Use a push block.</p>`
+    );
+
+    for (const pan of t.panels) {
+      add(
+        `row-${pan.id}`,
+        many ? `Glue up row panel ${esc(pan.name)}` : 'Glue up the row panel',
+        `Glue the ${pan.sticks.length} sticks side by side in this order, left to right.`,
+        `<div class="diagram-wrap">${rowPanelSvg(pan, speciesList, 560)}</div>
+        <p class="note">${cubes ? 'Each cube is a top diamond with two side diamonds below it. ' : ''}It makes ${pan.rows} row${pan.rows > 1 ? 's' : ''} of every board. Keep the sticks flush at the ends.</p>`
+      );
+    }
+
+    add(
+      'crosscut',
+      'Crosscut the slices',
+      `Square one end, then cut slices ${fmt(t.sliceLength)} long. That's your ${fmt(r.board.thickness)} board plus ${fmt(S.flatten)} to flatten.`,
+      `<table class="t"><thead><tr><th>Panel</th><th>Slices</th></tr></thead><tbody>${t.panels
+        .map((pan) => `<tr><td>Row ${esc(pan.name)}</td><td>${pan.slices}</td></tr>`)
+        .join('')}</tbody></table>
+      <p class="note">Use a stop block so every slice is the same.</p>`
     );
 
     add(
-      'cut',
-      'Cut the sticks to length',
-      `Cut ${t.sticks} short sticks ${fmt(t.stickLength)} long, ${t.perRip} from each long one.`,
-      `<table class="t"><thead><tr><th>Wood</th><th>Short sticks</th></tr></thead><tbody>${r.lumber
-        .map((l) => `<tr><td>${sw(l.species)}${esc(l.name)}</td><td>${l.sticks}</td></tr>`)
-        .join('')}</tbody></table>
-      <p class="note">Use a stop block so they all match. ${fmt(t.stickLength)} makes ${t.boards} board${t.boards > 1 ? 's' : ''} ${fmt(r.board.thickness)} thick, with ${fmt(S.flatten)} to flatten and ${fmt(S.endTrim)} to square up.</p>`
+      'layout',
+      'Lay out the rows',
+      `Stand the slices end grain up in ${t.rows.length} rows. Every other row slides ${fmt(t.half)} over so it nests.`,
+      `<p class="note">${many ? `The rows go ${t.rows.map((x) => x.name).join(' ')} from top to bottom. ` : ''}The numbers in the picture are the row numbers.</p>`
     );
 
     add(
-      'log',
-      'Glue up the log',
-      cubes ? 'Glue the diamonds end grain up, one row at a time, so each hexagon has one of each wood.' : 'Glue the hexagons end grain up, one row at a time, nesting each row into the one before.',
+      'glue2',
+      'Glue the rows together',
+      'Glue a few rows at a time, nesting each one into the last.',
       `<ul class="checks">
-        ${cubes ? t.woods.map((w, i) => `<li>${sw(w)}${esc(sp(w).name)} on the ${faceNames[i]} of every cube.</li>`).join('') : ''}
-        <li>The log is about ${fmt(t.logWidth)} × ${fmt(t.logLength)}: ${fmt(S.edgeTrim)} bigger all round than the board, for trimming.</li>
-        <li>Glue a few rows at a time and let them set. Painter's tape or band clamps hold the rows tight.</li>
-        ${r.grain === 'matched' ? '<li>Keep the same face of every stick pointing the same way so the grain matches.</li>' : ''}
+        <li>Spread a full coat of glue; end grain soaks it up.</li>
+        <li>Painter's tape or band clamps pull nested rows tight better than bar clamps.</li>
+        <li>Let it cure fully before flattening.</li>
       </ul>`
-    );
-
-    add(
-      'slice',
-      t.boards > 1 ? `Slice ${t.boards} boards from the log` : 'Square the log',
-      t.boards > 1 ? `Square one end, then cut slices ${fmt(t.sliceLength)} long.` : `Square both ends so the log is ${fmt(t.sliceLength)} long.`,
-      `<p class="note">That's your ${fmt(r.board.thickness)} board plus ${fmt(S.flatten)} to flatten. A crosscut sled keeps the slices square.</p>`
     );
 
     add(

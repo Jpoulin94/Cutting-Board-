@@ -137,6 +137,27 @@
     return v == null ? '–' : `$${v.toFixed(2)}`;
   }
 
+  // One row panel's end: the sticks in glue order, numbered left to right.
+  function rowPanelSvg(pan, speciesList, maxW = 520) {
+    const xs = pan.end.flatMap((pc) => pc.poly.map((q) => q[0]));
+    const ys = pan.end.flatMap((pc) => pc.poly.map((q) => q[1]));
+    const W = Math.max(...xs);
+    const H = Math.max(...ys);
+    const k = Math.min(maxW / W, 26);
+    const hexes = [];
+    const parts = pan.end
+      .map((pc, i) => {
+        const sp = CB.species.byId(speciesList, pc.species);
+        const cx = pc.poly.reduce((a, q) => a + q[0], 0) / pc.poly.length;
+        const cy = pc.poly.reduce((a, q) => a + q[1], 0) / pc.poly.length;
+        hexes.push(cx);
+        return `<polygon points="${pc.poly.map(([x, y]) => `${(x * k).toFixed(1)},${(y * k).toFixed(1)}`).join(' ')}" fill="${sp.color}" stroke="#000" stroke-width="0.7"/>
+          <text x="${(cx * k).toFixed(1)}" y="${(cy * k + 4).toFixed(1)}" fill="${textOn(sp.color)}" font-size="${Math.max(8, Math.min(11, k * 0.4))}">${i + 1}</text>`;
+      })
+      .join('');
+    return `<svg class="diagram" viewBox="-2 -2 ${W * k + 4} ${H * k + 4}" width="${W * k + 4}" height="${H * k + 4}" text-anchor="middle">${parts}</svg>`;
+  }
+
   // One stick's end, with its sizes, for honeycomb and 3D cubes.
   function stickSvg(t, color, fmt, px = 150) {
     const sh = t.shape;
@@ -149,7 +170,7 @@
     const H = sh.thickness * k;
     return `<svg class="diagram" viewBox="-60 -10 ${W + 160} ${H + 44}" width="${W + 160}" height="${H + 44}" font-size="11" text-anchor="middle">
       <polygon points="${pts.map(([x, y]) => `${x * k},${y * k}`).join(' ')}" fill="${color}" stroke="#000" stroke-width="1"/>
-      <text x="${(s / 2 + s / 2) * k}" y="-1">${esc(fmt(s))} side</text>
+      <text x="${s * k}" y="-1">${esc(fmt(s))} side</text>
       <text x="${W / 2}" y="${H + 16}">${esc(fmt(t.kind === 'cubes' ? s : sh.width))} ${t.kind === 'cubes' ? 'along the face' : 'wide'}</text>
       <text x="${W + 8}" y="${H / 2 + 4}" text-anchor="start">${esc(fmt(sh.thickness))} thick</text>
     </svg>`;
@@ -163,32 +184,47 @@
     const code = codes(speciesList, t.woods);
     const box = '<span class="box"></span>';
     const pattern = CB.engine.PATTERNS[design.pattern].label;
-    const faceNames = ['Top faces', 'Left faces', 'Right faces'];
+    const shape = cubes ? 'diamond' : 'hexagon';
     const lumberRows = r.lumber
-      .map((l) => `<tr><td><i class="sw" style="background:${l.color}"></i>${esc(l.name)}</td>
-        <td>${fmt(l.pieces[0].thickness)} milled <span class="muted">(${l.pieces[0].rough.laminate ? `${l.pieces[0].rough.layers} × 8/4 laminated` : `${l.pieces[0].rough.quarters}/4 rough`})</span></td>
-        <td>${fmt(l.pieces[0].width)}</td><td>${fmt(l.pieces[0].length)}</td><td>${l.bf.toFixed(2)}</td><td>${l.bfBuy.toFixed(2)}</td><td>${money(l.cost)}</td></tr>`)
+      .map((l) =>
+        l.pieces
+          .map(
+            (p, i) => `<tr>${i === 0 ? `<td rowspan="${l.pieces.length}"><i class="sw" style="background:${l.color}"></i>${esc(l.name)}</td>` : ''}
+          <td>${esc(p.panel)}</td>
+          <td>${fmt(p.thickness)} milled <span class="muted">(${p.rough.laminate ? `${p.rough.layers} × 8/4 laminated` : `${p.rough.quarters}/4 rough`})</span></td>
+          <td>${fmt(p.width)}</td><td>${fmt(p.length)}</td>
+          ${i === 0 ? `<td rowspan="${l.pieces.length}">${l.bf.toFixed(2)}</td><td rowspan="${l.pieces.length}">${l.bfBuy.toFixed(2)}</td><td rowspan="${l.pieces.length}">${money(l.cost)}</td>` : ''}</tr>`
+          )
+          .join('')
+      )
       .join('');
     const stickRows = r.lumber
-      .map((l) => {
-        const role = cubes ? t.woods.map((w, i) => (w === l.species ? faceNames[i] : null)).filter(Boolean).join(', ') : '';
-        return `<tr><td>${box}</td><td><i class="sw" style="background:${l.color}"></i>${esc(l.name)}${role ? ` <span class="muted">(${esc(role)})</span>` : ''}</td><td>${l.long}</td><td>${fmt(t.ripLength)}</td><td>${l.sticks}</td></tr>`;
-      })
+      .flatMap((l) => l.rips.map((rp) => `<tr><td>${box}</td><td><i class="sw" style="background:${l.color}"></i>${esc(l.name)}</td><td>${esc(rp.panel)}</td><td>${rp.count}</td><td>${fmt(rp.length)}</td></tr>`))
       .join('');
-    const logR = { ...r, board: { ...r.board, width: t.logWidth, length: t.logLength }, blocks: t.pieces.map((pc) => ({ poly: pc.poly.map(([x, y]) => [x + S.edgeTrim, y + S.edgeTrim]), species: pc.species })) };
     const ripSteps = cubes
       ? [
           `Plane each board to ${fmt(t.shape.thickness)} thick. That's the height of a diamond.`,
-          'Tilt the blade 30\u00b0 and rip one edge to set the angle.',
+          'Tilt the blade 30° and rip one edge to set the angle.',
           `Keep the blade tilted and set the fence so each rip makes a diamond ${fmt(t.size)} along the face. Each rip uses ${fmt(t.kerfAngle)} of width at this angle.`,
-          `Crosscut the long sticks into ${fmt(t.stickLength)} pieces, ${t.perRip} from each.`,
         ]
       : [
           `Plane each board to ${fmt(t.shape.thickness)} thick (across the flats).`,
           `Rip blanks ${fmt(t.shape.width)} wide (point to point).`,
-          `Tilt the blade 30\u00b0 and bevel all four corners, so every side is ${fmt(t.size)}. Use a stop block and a sled or push block; these are small parts.`,
-          `Crosscut the long sticks into ${fmt(t.stickLength)} pieces, ${t.perRip} from each.`,
+          `Tilt the blade 30° and bevel all four corners, so every side is ${fmt(t.size)}.`,
         ];
+    const panelBlocks = t.panels
+      .map(
+        (pan) => `<div class="keep">
+        <h3>${box} Row ${esc(pan.name)}: glue ${pan.sticks.length} ${shape} sticks in this order</h3>
+        <div class="diagram-wrap">${rowPanelSvg(pan, speciesList)}</div>
+        <p>About ${fmt(pan.width)} wide × ${fmt(pan.length)} long. Makes ${pan.slices} slice${pan.slices > 1 ? 's' : ''} (${pan.rows} row${pan.rows > 1 ? 's' : ''} per board).</p>
+      </div>`
+      )
+      .join('');
+    const crossRows = t.panels
+      .map((pan) => `<tr><td>${box}</td><td>Row ${esc(pan.name)}</td><td>${fmt(S.endTrim)}</td><td>${fmt(t.sliceLength)}</td><td>${pan.slices}</td><td>${pan.slices} × ${fmt(S.kerfCross)} = ${fmt(pan.slices * S.kerfCross)}</td></tr>`)
+      .join('');
+    const order = t.rows.map((row, i) => `<li>Row ${i + 1}: <b>${esc(row.name)}</b>${row.shift ? `, slid ${fmt(t.half)} over so it nests` : ''}</li>`).join('');
     return `<article class="sheet">
       <header class="sheet-head">
         <div>
@@ -203,9 +239,9 @@
           <h2>Summary</h2>
           <table class="kv">
             <tr><th>Finished size</th><td>${fmt(r.board.width)} wide × ${fmt(r.board.length)} long × ${fmt(r.board.thickness)} thick</td></tr>
-            <tr><th>Sticks</th><td>${t.sticks} ${cubes ? 'diamonds' : 'hexagons'}, ${fmt(t.size)} sides, ${fmt(t.stickLength)} long</td></tr>
-            <tr><th>Boards from the log</th><td>${t.boards}</td></tr>
-            <tr><th>Rip kerf</th><td>${fmt(S.kerfRip)} · ${r.total.angleRips} angled rips</td></tr>
+            <tr><th>Sticks</th><td>${t.sticks} long ${shape}s, ${fmt(t.size)} sides</td></tr>
+            <tr><th>Row panels</th><td>${t.panels.length} (${t.panels.map((p) => p.name).join(', ')}) · ${t.rows.length} rows per board</td></tr>
+            <tr><th>Crosscuts</th><td>${r.total.cuts} slices ${fmt(t.sliceLength)} long · ${fmt(r.total.crossKerf)} lost to kerf</td></tr>
             <tr><th>Lumber</th><td>${r.total.bf.toFixed(2)} bf needed · ${r.total.bfBuy.toFixed(2)} bf to buy (+${S.waste}% waste)</td></tr>
           </table>
           ${r.warnings.map((w) => `<p class="warn">${esc(w)}</p>`).join('')}
@@ -214,38 +250,42 @@
       <section class="keep">
         <h2>1. Lumber needed</h2>
         <table class="grid">
-          <thead><tr><th>Species</th><th>Thickness</th><th>Width</th><th>Length</th><th>bf</th><th>bf to buy</th><th>Cost</th></tr></thead>
+          <thead><tr><th>Species</th><th>For</th><th>Thickness</th><th>Width</th><th>Length</th><th>bf</th><th>bf to buy</th><th>Cost</th></tr></thead>
           <tbody>${lumberRows}</tbody>
         </table>
-        <p class="muted">Lengths are ${fmt(t.ripLength)} so the angled rips are safe to make; the short sticks are cut from them.</p>
       </section>
       <section class="keep">
-        <h2>2. Make the sticks</h2>
+        <h2>2. Make the long sticks</h2>
         <div class="split">
-          ${stickSvg(t, CB.species.byId(speciesList, t.woods[cubes ? 0 : 0]).color, fmt)}
+          ${stickSvg(t, CB.species.byId(speciesList, t.woods[0]).color, fmt)}
           <ol>${ripSteps.map((x) => `<li>${x}</li>`).join('')}</ol>
         </div>
         <table class="grid">
-          <thead><tr><th></th><th>Species</th><th>Long sticks</th><th>Length</th><th>Short sticks</th></tr></thead>
+          <thead><tr><th></th><th>Species</th><th>For</th><th>Sticks</th><th>Length</th></tr></thead>
           <tbody>${stickRows}</tbody>
         </table>
       </section>
-      <section class="keep">
-        <h2>3. Glue the log</h2>
-        <div class="split">
-          ${boardSvg(logR, speciesList, code, 300)}
-          <div>
-            <p>Glue the sticks end grain up, one row at a time, in the layout shown. ${cubes ? 'Each hexagon is three diamonds: top, left and right, each in its own wood.' : ''} The log is about ${fmt(t.logWidth)} × ${fmt(t.logLength)}, ${fmt(S.edgeTrim)} bigger all round than the board for trimming.</p>
-            <p>Glue a few rows at a time and let them set, so the rows stay tight. Painter's tape around the outside works well as a clamp.</p>
-          </div>
-        </div>
+      <section>
+        <h2>3. Glue-up 1: row panels</h2>
+        ${panelBlocks}
       </section>
       <section class="keep">
-        <h2>4. Slice and finish</h2>
+        <h2>4. Crosscuts</h2>
+        <table class="grid">
+          <thead><tr><th></th><th>Panel</th><th>Square end</th><th>Slice length</th><th>Slices</th><th>Kerf lost</th></tr></thead>
+          <tbody>${crossRows}</tbody>
+        </table>
+      </section>
+      <section class="keep">
+        <h2>5. Glue-up 2: rows, end grain up</h2>
+        <ol>${order}</ol>
+        <p>Every other row nests into the one before it. Glue a few rows at a time so they stay tight.</p>
+      </section>
+      <section class="keep">
+        <h2>6. Finishing</h2>
         <ul class="checks">
-          <li>${box} Square one end of the log, then cut ${t.boards} slice${t.boards > 1 ? 's' : ''} ${fmt(t.sliceLength)} long.</li>
-          <li>${box} Flatten both faces to ${fmt(r.board.thickness)} thick.</li>
           <li>${box} Trim the ragged edges to ${fmt(r.board.width)} × ${fmt(r.board.length)}.</li>
+          <li>${box} Flatten both faces to ${fmt(r.board.thickness)} thick.</li>
         </ul>
       </section>
     </article>`;
@@ -397,5 +437,5 @@
     </article>`;
   }
 
-  CB.sheet = { stickSvg, turnNote, html, boardSvg, panelSvg, rowsSvg, codes, esc, textOn, money };
+  CB.sheet = { rowPanelSvg, stickSvg, turnNote, html, boardSvg, panelSvg, rowsSvg, codes, esc, textOn, money };
 })(typeof window !== 'undefined' ? window : globalThis);

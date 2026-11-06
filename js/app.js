@@ -400,7 +400,7 @@
     const lumberRows = r.lumber
       .map(
         (l) => `<tr><td><i class="sw" style="background:${l.color}"></i>${esc(l.name)}</td>
-        <td>${l.pieces.map((p) => `${fmt(p.thickness)} <span class="muted">(${p.rough.laminate ? `${p.rough.layers}×8/4` : `${p.rough.quarters}/4`})</span><br><span class="muted">${fmt(p.width)} × ${fmt(p.length)}</span>`).join('<br>')}</td>
+        <td>${l.pieces.map((p) => `${fmt(p.thickness)} <span class="muted">(${p.rough.laminate ? `${p.rough.layers}×8/4` : `${p.rough.quarters}/4`})</span><br><span class="muted">${fmt(p.width)} × ${fmt(p.length)}${t.panels.length > 1 ? ` · ${esc(p.panel)}` : ''}</span>`).join('<br>')}</td>
         <td class="r">${l.bfBuy.toFixed(2)}</td><td class="r">${money(l.cost)}</td></tr>`
       )
       .join('');
@@ -409,11 +409,12 @@
       <section class="section"><h2>Finished board</h2>
         <div class="big">${fmt(r.board.width)} × ${fmt(r.board.length)} × ${fmt(r.board.thickness)}</div>
         <div class="stats" style="margin-top:10px">
-          <div class="stat"><small>${cubes ? 'Diamond' : 'Hexagon'} sticks</small><b>${t.sticks}</b></div>
-          <div class="stat"><small>Angled rips</small><b>${r.total.angleRips}</b></div>
+          <div class="stat"><small>Long ${cubes ? 'diamond' : 'hexagon'} sticks</small><b>${t.sticks}</b></div>
+          <div class="stat"><small>Slices to crosscut</small><b>${r.total.cuts}</b></div>
           <div class="stat"><small>Lumber to buy</small><b>${r.total.bfBuy.toFixed(2)} bf</b></div>
           <div class="stat"><small>Cost</small><b>${money(r.total.cost)}</b>${r.total.unpriced.length ? '<small>some prices missing</small>' : ''}</div>
         </div>
+        <p class="kerf-line"><b>${r.total.cuts} crosscuts × ${fmt(r.settings.kerfCross)} = ${fmt(r.total.crossKerf)}</b> of length lost<br>${r.total.angleRips} angled rips at 30°</p>
         ${r.warnings.map((w) => `<p class="warn">${esc(w)}</p>`).join('')}
       </section>
       <section class="section"><h2>Lumber needed</h2>
@@ -422,9 +423,13 @@
         <tfoot><tr><td colspan="2">Total (+${r.settings.waste}% waste)</td><td class="r">${r.total.bfBuy.toFixed(2)}</td><td class="r">${money(r.total.cost)}</td></tr></tfoot></table>
         ${r.total.unpriced.length ? `<p class="warn">No price yet for ${esc(r.total.unpriced.join(', '))}. <button class="small" data-act="species">Add prices</button></p>` : ''}
       </section>
-      <section class="section"><h2>The sticks</h2>
-        <div class="diagram-wrap">${sheet.stickSvg(t, CB.species.byId(speciesList, t.woods[0]).color, fmt, 120)}</div>
-        <p class="method">${esc(r.method)} Each short stick is <b>${fmt(t.stickLength)}</b> long, cut ${t.perRip} at a time from ${fmt(t.ripLength)} rips.</p>
+      <section class="section"><h2>Glue-up 1: row panels</h2>
+        ${t.panels
+          .map((pan) => `<div><b>Row ${esc(pan.name)}</b> <span class="muted">· ${pan.sticks.length} sticks · ${fmt(pan.length)} long · ${pan.slices} slices</span>
+            <div class="diagram-wrap">${sheet.rowPanelSvg(pan, speciesList, 320)}</div></div>`)
+          .join('')}
+        <h2 style="margin-top:6px">Glue-up 2: rows</h2>
+        <p class="method">Crosscut slices <b>${fmt(t.sliceLength)}</b> long. ${esc(r.method)}</p>
         <p class="row-actions" style="margin-top:12px"><button class="primary" data-act="plan">Build steps</button><button data-act="sheet">Shop sheet</button></p>
       </section>`;
   }

@@ -636,75 +636,108 @@
       });
     }
 
-    // Stick shape, stock and kerf.
+    // Built row by row: long sticks glued side by side into a one-row
+    // panel, crosscut into slices, and the slices glued together with every
+    // other row nested half a hexagon over. Rows that read the same come
+    // from the same panel.
     const kAngle = S.kerfRip / sin60; // kerf measured across the face at a 30 degree blade tilt
     const shape = cubes
       ? { name: 'diamond', thickness: s * sin60, width: s, faceWidth: s + kAngle, tilt: 30 }
       : { name: 'hexagon', thickness: f, width: 2 * s, faceWidth: 2 * s + S.kerfRip, tilt: 30 };
     const sliceLength = d.thickness + S.flatten;
-    const stickLength = S.endTrim + t.boards * (sliceLength + S.kerfCross);
-    const ripLength = Math.max(stickLength, 24 * IN);
-    const perRip = Math.max(1, Math.floor(ripLength / (stickLength + S.kerfCross)));
+
+    const usedRows = [...new Set(sticks.map((pc) => pc.row))].sort((a, b) => a - b);
+    const usedCols = sticks.map((pc) => pc.col);
+    const cMin = Math.min(...usedCols);
+    const cMax = Math.max(...usedCols);
+    const byRow = {};
+    for (const pc of pieces) if (pc.col >= cMin && pc.col <= cMax) (byRow[pc.row] = byRow[pc.row] || []).push(pc);
+    const panelsT = [];
+    const rowList = [];
+    for (const r of usedRows) {
+      const list = byRow[r].sort((a, b) => a.col - b.col || (a.key < b.key ? -1 : 1));
+      const seq = list.map((pc) => pc.wood).join(',');
+      let pan = panelsT.find((x) => x.seq === seq);
+      if (!pan) {
+        pan = { id: `R${panelsT.length}`, name: String.fromCharCode(65 + panelsT.length), seq, rows: 0, sticks: list.map((pc) => ({ wood: pc.wood, species: woods[pc.wood] })), sample: list };
+        panelsT.push(pan);
+      }
+      pan.rows += 1;
+      const odd = ((r - r0) % 2 + 2) % 2 === 1;
+      rowList.push({ r, panel: pan.id, name: pan.name, shift: odd, y0: Math.min(...list.flatMap((pc) => pc.poly.map((q) => q[1]))) });
+    }
+    const rowPanel = Object.fromEntries(rowList.map((x) => [x.r, x.name]));
+    for (const b of blocks) b.panel = rowPanel[b.row] || 'A';
+    for (const pan of panelsT) {
+      pan.slices = pan.rows * t.boards;
+      pan.length = S.endTrim + pan.slices * (sliceLength + S.kerfCross);
+      pan.width = (cMax - cMin + 1) * f + f / 2;
+      pan.depth = 2 * s; // point to point, across the row
+      const xs = pan.sample.flatMap((pc) => pc.poly.map((q) => q[0]));
+      const ys = pan.sample.flatMap((pc) => pc.poly.map((q) => q[1]));
+      const x0 = Math.min(...xs);
+      const y0 = Math.min(...ys);
+      pan.end = pan.sample.map((pc) => ({ poly: pc.poly.map(([x, y]) => [x - x0, y - y0]), species: woods[pc.wood], rot: pc.rot }));
+      delete pan.sample;
+    }
 
     const bySp = {};
-    sticks.forEach((pc) => {
-      const sp = woods[pc.wood];
-      (bySp[sp] = bySp[sp] || { species: sp, count: 0 }).count += 1;
-    });
+    for (const pan of panelsT) {
+      for (const st of pan.sticks) {
+        const e = (bySp[st.species] = bySp[st.species] || { species: st.species, perPanel: {} });
+        e.perPanel[pan.id] = (e.perPanel[pan.id] || 0) + 1;
+      }
+    }
     const lumber = [];
     let rips = 0;
-    let angleRips = 0;
     for (const e of Object.values(bySp)) {
       const sp = CB.species ? CB.species.byId(speciesList || [], e.species) : { name: e.species, price: null };
-      const long = Math.ceil(e.count / perRip); // long sticks to rip
-      const stockWidth = cubes ? long * shape.faceWidth + s / 2 + IN / 4 : long * shape.faceWidth + IN / 4;
       const thickness = shape.thickness + S.panelPlane;
       const rough = roughFor(thickness);
-      const bf = (rough.inches * (stockWidth / IN) * (ripLength / IN)) / 144;
+      const pieces2 = [];
+      const ripsL = [];
+      let bf = 0;
+      let count = 0;
+      for (const pan of panelsT) {
+        const n = e.perPanel[pan.id];
+        if (!n) continue;
+        const width = n * shape.faceWidth + (cubes ? s / 2 : 0) + IN / 4;
+        const pbf = (rough.inches * (width / IN) * (pan.length / IN)) / 144;
+        bf += pbf;
+        count += n;
+        pieces2.push({ panel: `Row ${pan.name}`, width, length: pan.length, thickness, rough, bf: pbf });
+        ripsL.push({ key: `${e.species}|${pan.id}`, panel: `Row ${pan.name}`, width: shape.width, length: pan.length, thickness: shape.thickness, count: n });
+      }
+      rips += count;
       const bfBuy = bf * (1 + S.waste / 100);
-      rips += long;
-      angleRips += cubes ? long : long * 4;
-      lumber.push({
-        species: e.species,
-        name: sp.name,
-        color: sp.color,
-        price: sp.price,
-        sticks: e.count,
-        long,
-        rips: [{ key: e.species, panel: shape.name, width: shape.width, length: ripLength, thickness: shape.thickness, count: long }],
-        pieces: [{ panel: shape.name, width: stockWidth, length: ripLength, thickness, rough, bf }],
-        bf,
-        bfBuy,
-        cost: sp.price == null ? null : bfBuy * sp.price,
-        volumeM3: bfBuy * 0.00235974,
-      });
+      lumber.push({ species: e.species, name: sp.name, color: sp.color, price: sp.price, sticks: count, rips: ripsL, pieces: pieces2, bf, bfBuy, cost: sp.price == null ? null : bfBuy * sp.price, volumeM3: bfBuy * 0.00235974 });
     }
     lumber.sort((a, b) => b.bf - a.bf);
     const priced = lumber.filter((l) => l.cost != null);
-    const crossCuts = Math.ceil(sticks.length / perRip) * perRip; // sticks cut from the long rips
+    const slices = sum(panelsT.map((p) => p.slices));
     const total = {
       bf: sum(lumber.map((l) => l.bf)),
       bfBuy: sum(lumber.map((l) => l.bfBuy)),
       cost: sum(priced.map((l) => l.cost)),
       unpriced: lumber.filter((l) => l.cost == null).map((l) => l.name),
-      cuts: t.boards,
-      crossKerf: t.boards * S.kerfCross,
+      cuts: slices,
+      crossKerf: slices * S.kerfCross,
       ripKerf: cubes ? rips * kAngle : rips * S.kerfRip,
       rips,
-      angleRips,
-      sticks: sticks.length,
-      stickCuts: crossCuts,
+      angleRips: cubes ? rips : rips * 4,
+      sticks: rips,
     };
     const warnings = [];
     if (s < IN / 2) warnings.push('Sticks this small are hard to cut safely. Use a push block and a zero-clearance insert, or make them bigger.');
-    const rowsUsed = [...new Set(sticks.map((pc) => pc.row))].length;
+    const shortest = Math.min(...panelsT.map((p) => p.length));
+    if (shortest < 18 * IN) warnings.push('Some row panels are short. Rip the sticks longer for safety; the extra length makes more boards.');
     return {
       pattern: d.pattern,
       grain: d.grain || 'matched',
       details: d.details || { ...DEFAULT_DETAILS },
       method: cubes
-        ? 'Rip diamond sticks with the blade tilted 30\u00b0, glue them into a log so each hexagon is one diamond of each wood, then slice the log into boards.'
-        : 'Bevel six-sided sticks with the blade tilted 30\u00b0, glue them into a log row by row, then slice the log into boards.',
+        ? 'Rip diamond sticks with the blade tilted 30° and glue them into one-row panels of cubes. Crosscut the panels into slices and glue the slices together, every other row nested half a cube over.'
+        : 'Bevel six-sided sticks with the blade tilted 30° and glue them into one-row panels. Crosscut the panels into slices and glue the slices together, every other row nested half a hexagon over.',
       accent: null,
       rows: [],
       shift: 0,
@@ -717,17 +750,13 @@
         across: f,
         shape,
         woods,
-        sticks: sticks.length,
-        rows: rowsUsed,
-        stickLength,
-        ripLength,
-        perRip,
+        panels: panelsT,
+        rows: rowList,
         boards: t.boards,
         sliceLength,
-        logWidth: W + 2 * E,
-        logLength: L + 2 * E,
         kerfAngle: kAngle,
-        pieces: sticks.map((pc) => ({ poly: pc.poly, species: woods[pc.wood], row: pc.row, rot: pc.rot })),
+        sticks: rips,
+        half: f / 2,
       },
       lumber,
       total,
