@@ -42,6 +42,7 @@
       </div>
       <button id="btnSpecies" class="ghost">Species</button>
       <button id="btnSave" class="ghost" title="Save in this browser (Ctrl+S)">Save</button>
+      <button id="btnPlan" class="ghost">Build steps</button>
       <button id="btnSheet" class="primary">Shop sheet</button>
       <input id="fileInput" type="file" accept=".json,application/json" hidden />
     </header>
@@ -64,6 +65,22 @@
 
       <aside class="inspector" id="rightPanel" aria-label="Cut list"></aside>
     </main>
+
+    <div id="planView" class="plan-view" hidden role="dialog" aria-label="Build steps">
+      <div class="plan-bar">
+        <strong id="planTitle"></strong>
+        <span id="planCount" class="muted"></span>
+        <div class="spacer"></div>
+        <button id="btnPlanReset" class="ghost small">Clear ticks</button>
+        <button id="btnClosePlan" class="ghost">Close</button>
+      </div>
+      <div id="planTrack" class="plan-track"></div>
+      <div class="plan-nav">
+        <button id="btnPlanPrev">Back</button>
+        <div id="planDots" class="plan-dots"></div>
+        <button id="btnPlanNext" class="primary">Next</button>
+      </div>
+    </div>
 
     <div id="sheetView" class="sheet-view" hidden>
       <div class="sheet-bar">
@@ -92,6 +109,8 @@
     <script src="js/presets.js"></script>
     <script src="js/preview3d.js"></script>
     <script src="js/sheet.js"></script>
+    <script src="js/illustrate.js"></script>
+    <script src="js/planner.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/app.js"></script>
   </body>

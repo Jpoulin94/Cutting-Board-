@@ -228,3 +228,17 @@ test('grain defaults to matched and blocks know their stick', () => {
   assert.match(b.stick, /^A:\d$/);
   assert.equal(engine.normalizeDesign({ ...d, grain: 'random' }).grain, 'random');
 });
+
+test('build steps cover every stage, with accent steps only when needed', () => {
+  const { planner, presets } = require('./load');
+  const prefs = { units: 'in', precision: 16 };
+  const plain = engine.newDesign('Plain');
+  let steps = planner.steps(plain, engine.compute(plain, species.defaults()), species.defaults(), prefs);
+  assert.deepEqual(steps.map((s) => s.key), ['mill', 'rip', 'glue1-A', 'plane', 'crosscut', 'layout', 'glue2', 'trim', 'finish']);
+  assert.match(steps[4].body, /10 × 1\/8" = 1-1\/4"/);
+  for (const p of presets.PRESETS) {
+    const d = presets.make(p, engine.DEFAULT_SETTINGS);
+    steps = planner.steps(d, engine.compute(d, species.defaults()), species.defaults(), prefs);
+    assert.equal(steps.some((s) => s.key === 'accent-glue'), !!d.accent.enabled, p.name);
+  }
+});

@@ -374,7 +374,7 @@
           .join('')}
         <h2 style="margin-top:6px">Glue-up 2: slices</h2>
         <p class="method">Crosscut slices <b>${fmt(r.panels[0] ? r.panels[0].sliceLength : 0)}</b> long (${fmt(design.thickness)} + ${fmt(S.flatten)} flattening). ${esc(r.method)}${r.shift ? ` Shift: <b>${fmt(r.shift)}</b>.` : ''}</p>
-        <p style="margin-top:12px"><button class="primary" data-act="sheet">Open shop sheet</button></p>
+        <p class="row-actions" style="margin-top:12px"><button class="primary" data-act="plan">Build steps</button><button data-act="sheet">Shop sheet</button></p>
       </section>`;
   }
 
@@ -570,6 +570,8 @@
         return openStock();
       case 'sheet':
         return openSheet();
+      case 'plan':
+        return openPlan();
     }
   }
 
@@ -749,6 +751,78 @@
     }
   }
 
+  // ---------- build steps ----------
+  const PROGRESS = 'cutting-board-designer.progress';
+  function readProgress() {
+    try {
+      return JSON.parse(localStorage.getItem(PROGRESS)) || {};
+    } catch (e) {
+      return {};
+    }
+  }
+  function writeProgress(all) {
+    try {
+      localStorage.setItem(PROGRESS, JSON.stringify(all));
+    } catch (e) {
+      /* ticks just won't be remembered */
+    }
+  }
+  let planSteps = [];
+  let planPics = {};
+  function drawPics() {
+    requestAnimationFrame(() =>
+      $$('#planTrack canvas[data-pic]').forEach((c) => {
+        const pic = planPics[c.dataset.pic];
+        CB.illustrate.draw(c, pic.boxes, speciesList, { labels: pic.labels, yaw: pic.yaw, pitch: pic.pitch });
+      })
+    );
+  }
+  let planIndex = 0;
+
+  function openPlan() {
+    planSteps = CB.planner.steps(design, result, speciesList, prefs);
+    planPics = CB.illustrate.stages(design, result);
+    const done = readProgress()[design.id] || {};
+    $('#planTitle').textContent = design.name;
+    $('#planTrack').innerHTML = planSteps
+      .map(
+        (st, i) => `<section class="plan-step" data-i="${i}"><div class="plan-card">
+          <p class="eyebrow">Step ${i + 1} of ${planSteps.length}</p>
+          <h2>${esc(st.title)}</h2>
+          <p class="lead">${esc(st.lead)}</p>
+          ${planPics[st.key] ? `<canvas class="pic" data-pic="${st.key}" aria-label="Picture of this step"></canvas>` : ''}
+          ${st.body}
+          <label class="done"><input type="checkbox" data-done="${st.key}"${done[st.key] ? ' checked' : ''}/> Done</label>
+        </div></section>`
+      )
+      .join('');
+    $('#planView').hidden = false;
+    drawPics();
+    // Start at the first step that isn't ticked.
+    const first = planSteps.findIndex((st) => !done[st.key]);
+    goStep(first < 0 ? 0 : first, false);
+  }
+
+  function renderPlanNav() {
+    const done = readProgress()[design.id] || {};
+    $('#planDots').innerHTML = planSteps
+      .map((st, i) => `<button class="${i === planIndex ? 'on' : ''}${done[st.key] ? ' done' : ''}" data-go="${i}" aria-label="Step ${i + 1}: ${esc(st.title)}"></button>`)
+      .join('');
+    const n = Object.keys(done).filter((k) => planSteps.some((st) => st.key === k)).length;
+    $('#planCount').textContent = `${n} of ${planSteps.length} done`;
+    $('#btnPlanPrev').disabled = planIndex === 0;
+    $('#btnPlanNext').textContent = planIndex === planSteps.length - 1 ? 'Close' : 'Next';
+  }
+
+  function goStep(i, smooth = true) {
+    planIndex = Math.max(0, Math.min(planSteps.length - 1, i));
+    const track = $('#planTrack');
+    track.scrollTo({ left: planIndex * track.clientWidth, behavior: smooth && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'auto' });
+    const step = $$('.plan-step', track)[planIndex];
+    if (step) step.scrollTop = 0;
+    renderPlanNav();
+  }
+
   function openSheet() {
     $('#sheetBody').innerHTML = sheet.html(design, result, speciesList, prefs);
     $('#sheetView').hidden = false;
@@ -821,6 +895,45 @@
   $('#btnSave').onclick = save;
   $('#btnSpecies').onclick = openSpecies;
   $('#btnSheet').onclick = openSheet;
+  $('#btnPlan').onclick = openPlan;
+  $('#btnClosePlan').onclick = () => ($('#planView').hidden = true);
+  $('#btnPlanPrev').onclick = () => goStep(planIndex - 1);
+  $('#btnPlanNext').onclick = () => (planIndex === planSteps.length - 1 ? ($('#planView').hidden = true) : goStep(planIndex + 1));
+  $('#planDots').onclick = (e) => {
+    const b = e.target.closest('[data-go]');
+    if (b) goStep(Number(b.dataset.go));
+  };
+  $('#btnPlanReset').onclick = () => {
+    const all = readProgress();
+    delete all[design.id];
+    writeProgress(all);
+    $$('[data-done]').forEach((x) => (x.checked = false));
+    renderPlanNav();
+  };
+  $('#planTrack').addEventListener('change', (e) => {
+    const key = e.target.dataset.done;
+    if (!key) return;
+    const all = readProgress();
+    const mine = (all[design.id] = all[design.id] || {});
+    if (e.target.checked) mine[key] = true;
+    else delete mine[key];
+    writeProgress(all);
+    renderPlanNav();
+  });
+  $('#planTrack').addEventListener('scroll', () => {
+    const track = $('#planTrack');
+    const i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+    if (i !== planIndex) {
+      planIndex = i;
+      renderPlanNav();
+    }
+  }, { passive: true });
+  window.addEventListener('resize', () => {
+    if (!$('#planView').hidden) {
+      goStep(planIndex, false);
+      drawPics();
+    }
+  });
   $('#btnPrint').onclick = () => window.print();
   $('#btnCloseSheet').onclick = () => ($('#sheetView').hidden = true);
   $$('.units button').forEach(
@@ -867,8 +980,11 @@
     } else if (mod && !typing && e.key.toLowerCase() === 'y') {
       e.preventDefault();
       doRedo();
+    } else if (!$('#planView').hidden && !typing && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+      goStep(planIndex + (e.key === 'ArrowRight' ? 1 : -1));
     } else if (e.key === 'Escape') {
-      if (!$('#sheetView').hidden) $('#sheetView').hidden = true;
+      if (!$('#planView').hidden) $('#planView').hidden = true;
+      else if (!$('#sheetView').hidden) $('#sheetView').hidden = true;
       else if (selected) {
         selected = null;
         update();

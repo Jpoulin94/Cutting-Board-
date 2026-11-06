@@ -1,0 +1,341 @@
+// Pictures for the build steps: boxes of wood drawn in 3D with their grain,
+// in the woods you picked. A box is { x, y, z, w, d, h, species, grain }
+// in mm, where grain is the axis the wood fibres run along ('x', 'y' or 'z').
+// Boxes may carry `decor`: polygons drawn on their top face (world x, y).
+(function (root) {
+  'use strict';
+  const CB = (root.CB = root.CB || {});
+  const DEG = Math.PI / 180;
+
+  const hexRgb = (hex) => {
+    const n = parseInt((hex || '#999999').slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const rgb = (c, k = 1, a = 1) => `rgba(${Math.round(c[0] * k)},${Math.round(c[1] * k)},${Math.round(c[2] * k)},${a})`;
+  const lum = (c) => (0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]) / 255;
+  function rand(seed) {
+    let s = seed >>> 0 || 1;
+    return () => {
+      s ^= s << 13;
+      s ^= s >>> 17;
+      s ^= s << 5;
+      return ((s >>> 0) % 10000) / 10000;
+    };
+  }
+
+  function draw(canvas, boxes, speciesList, opts = {}) {
+    const yaw = (opts.yaw ?? -32) * DEG;
+    const pitch = (opts.pitch ?? 34) * DEG;
+    const cssW = canvas.clientWidth || opts.width || 600;
+    const cssH = canvas.clientHeight || opts.height || 320;
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+    if (!boxes.length) return;
+
+    const sp = Object.fromEntries(speciesList.map((s) => [s.id, s]));
+    const cy = Math.cos(yaw);
+    const sy = Math.sin(yaw);
+    const cp = Math.cos(pitch);
+    const spn = Math.sin(pitch);
+    // y runs away from the viewer here, so boards lie "into" the picture.
+    const raw = (x, y, z) => {
+      const yy = -y;
+      const x1 = x * cy - yy * sy;
+      const y1 = x * sy + yy * cy;
+      return [x1, y1 * spn - z * cp, y1 * cp + z * spn];
+    };
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const b of boxes)
+      for (const x of [b.x, b.x + b.w])
+        for (const y of [b.y, b.y + b.d])
+          for (const z of [b.z, b.z + b.h]) {
+            const [a, c] = raw(x, y, z);
+            minX = Math.min(minX, a);
+            maxX = Math.max(maxX, a);
+            minY = Math.min(minY, c);
+            maxY = Math.max(maxY, c);
+          }
+    const pad = 14;
+    const s = Math.min((cssW - pad * 2) / (maxX - minX), (cssH - pad * 2) / (maxY - minY));
+    const ox = cssW / 2 - ((minX + maxX) / 2) * s;
+    const oy = cssH / 2 - ((minY + maxY) / 2) * s;
+    const P = (x, y, z) => {
+      const [a, c] = raw(x, y, z);
+      return [ox + a * s, oy + c * s];
+    };
+    const depth = (b) => raw(b.x + b.w / 2, b.y + b.d / 2, b.z + b.h / 2)[2];
+    // Which side faces the viewer.
+    const facing = (n) => {
+      const [nx, ny, nz] = n;
+      const yy = -ny;
+      const y1 = nx * sy + yy * cy;
+      return y1 * cp + nz * spn > 1e-6;
+    };
+
+    // Soft shadow.
+    ctx.save();
+    ctx.filter = 'blur(8px)';
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    for (const b of boxes) {
+      if (b.z > 1) continue;
+      const pts = [P(b.x, b.y, 0), P(b.x + b.w, b.y, 0), P(b.x + b.w, b.y + b.d, 0), P(b.x, b.y + b.d, 0)];
+      path(ctx, pts.map(([x, y]) => [x + 4, y + 6]));
+      ctx.fill();
+    }
+    ctx.restore();
+
+    const sorted = [...boxes].sort((a, b) => depth(a) - depth(b));
+    for (const b of sorted) {
+      const species = sp[b.species] || { color: '#999999', streak: '' };
+      const base = hexRgb(species.color);
+      const streak = species.streak ? hexRgb(species.streak) : null;
+      const seed = b.seed ?? Math.round(b.x * 3 + b.y * 7 + b.z * 11 + 1);
+      // Faces: [normal, corner, axis a (world), axis b (world), shade]
+      const X = b.x;
+      const Y = b.y;
+      const Z = b.z;
+      const faces = [
+        { n: [0, 0, 1], o: [X, Y, Z + b.h], a: 'x', b: 'y', la: b.w, lb: b.d, k: 1 },
+        { n: [0, -1, 0], o: [X, Y, Z], a: 'x', b: 'z', la: b.w, lb: b.h, k: 0.82 },
+        { n: [0, 1, 0], o: [X, Y + b.d, Z], a: 'x', b: 'z', la: b.w, lb: b.h, k: 0.82 },
+        { n: [-1, 0, 0], o: [X, Y, Z], a: 'y', b: 'z', la: b.d, lb: b.h, k: 0.68 },
+        { n: [1, 0, 0], o: [X + b.w, Y, Z], a: 'y', b: 'z', la: b.d, lb: b.h, k: 0.68 },
+      ];
+      for (const f of faces) {
+        if (!facing(f.n)) continue;
+        const vec = (axis, len) => (axis === 'x' ? [len, 0, 0] : axis === 'y' ? [0, len, 0] : [0, 0, len]);
+        const [ax, ay, az] = vec(f.a, 1);
+        const [bx, by, bz] = vec(f.b, 1);
+        const o = P(...f.o);
+        const pa = P(f.o[0] + ax, f.o[1] + ay, f.o[2] + az);
+        const pb = P(f.o[0] + bx, f.o[1] + by, f.o[2] + bz);
+        const affine = [pa[0] - o[0], pa[1] - o[1], pb[0] - o[0], pb[1] - o[1], o[0], o[1]];
+        ctx.save();
+        ctx.transform(...affine);
+        ctx.beginPath();
+        ctx.rect(0, 0, f.la, f.lb);
+        ctx.fillStyle = rgb(base, f.k);
+        ctx.fill();
+        ctx.clip();
+        const normalAxis = f.n[0] ? 'x' : f.n[1] ? 'y' : 'z';
+        const r = rand(seed * 31 + (normalAxis.charCodeAt(0) - 119));
+        if (normalAxis === b.grain) endGrain(ctx, f, base, streak, r, b);
+        else longGrain(ctx, f, f.a === b.grain ? 'a' : 'b', base, streak, r, s);
+        if (f.n[2] === 1 && b.decor) {
+          for (const d of b.decor) {
+            ctx.beginPath();
+            d.poly.forEach(([x, y], i) => (i ? ctx.lineTo(x - X, y - Y) : ctx.moveTo(x - X, y - Y)));
+            ctx.closePath();
+            ctx.fillStyle = (sp[d.species] || { color: '#6e2f55' }).color;
+            ctx.fill();
+          }
+        }
+        ctx.restore();
+        ctx.beginPath();
+        const c = [P(...f.o), pa, null, pb];
+        const pts = [
+          P(...f.o),
+          P(f.o[0] + ax * f.la, f.o[1] + ay * f.la, f.o[2] + az * f.la),
+          P(f.o[0] + ax * f.la + bx * f.lb, f.o[1] + ay * f.la + by * f.lb, f.o[2] + az * f.la + bz * f.lb),
+          P(f.o[0] + bx * f.lb, f.o[1] + by * f.lb, f.o[2] + bz * f.lb),
+        ];
+        void c;
+        path(ctx, pts);
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+      }
+    }
+
+    // Labels (strip numbers, slice numbers) in screen space.
+    if (opts.labels) {
+      ctx.font = '600 11px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      for (const l of opts.labels) {
+        const [x, y] = P(l.x, l.y, l.z);
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        const w = ctx.measureText(l.text).width + 8;
+        ctx.fillRect(x - w / 2, y - 8, w, 15);
+        ctx.fillStyle = '#1f1b18';
+        ctx.fillText(l.text, x, y + 3);
+      }
+    }
+  }
+
+  function endGrain(ctx, f, base, streak, r, b) {
+    const size = Math.max(f.la, f.lb);
+    const cx = f.la / 2 + (r() - 0.5) * f.la * 0.4;
+    const far = streak ? size * (2 + r() * 2) : size * (0.9 + r() * 0.5);
+    const cyy = f.lb + far;
+    const gap = streak ? size * (0.1 + r() * 0.08) : Math.max(1.5, size / 12);
+    const dark = lum(base) < 0.35;
+    for (let rr = far - size * 0.2; rr < far + size * 1.6; rr += gap * (0.8 + r() * 0.5)) {
+      ctx.beginPath();
+      ctx.arc(cx, cyy, rr, 0, Math.PI * 2);
+      if (streak) {
+        ctx.strokeStyle = rgb(streak, f.k, 0.7 + r() * 0.25);
+        ctx.lineWidth = gap * (0.2 + r() * 0.3);
+      } else {
+        ctx.strokeStyle = dark ? 'rgba(255,235,210,0.12)' : 'rgba(60,30,10,0.16)';
+        ctx.lineWidth = gap * 0.3;
+      }
+      ctx.stroke();
+    }
+    void b;
+  }
+
+  function longGrain(ctx, f, along, base, streak, r, scale) {
+    // Lines running along the grain, a little wavy.
+    const len = along === 'a' ? f.la : f.lb;
+    const across = along === 'a' ? f.lb : f.la;
+    const dark = lum(base) < 0.35;
+    const step = Math.max(across / 40, (streak ? 5 : 3) / scale);
+    for (let t = r() * step; t < across; t += step * (0.6 + r() * 1.2)) {
+      ctx.beginPath();
+      const wav = r() * 2;
+      for (let i = 0; i <= 12; i++) {
+        const u = (len * i) / 12;
+        const v = t + Math.sin(i * 0.8 + wav) * step * 0.25;
+        const [x, y] = along === 'a' ? [u, v] : [v, u];
+        i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      }
+      if (streak && r() < 0.55) {
+        ctx.strokeStyle = rgb(streak, f.k, 0.65 + r() * 0.3);
+        ctx.lineWidth = step * (0.3 + r() * 0.5);
+      } else {
+        ctx.strokeStyle = dark ? 'rgba(255,235,210,0.10)' : 'rgba(60,30,10,0.14)';
+        ctx.lineWidth = Math.max(0.4 / scale, step * 0.18);
+      }
+      ctx.stroke();
+    }
+  }
+
+  function path(ctx, pts) {
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+  }
+
+  // ---------- the pictures for each stage ----------
+  function stages(design, r) {
+    const out = {};
+    const IN = 25.4;
+    const gapOf = (v) => Math.max(IN * 0.4, v * 0.06);
+
+    // Boards to mill: one per species and panel, side by side.
+    {
+      const boxes = [];
+      let x = 0;
+      for (const l of r.lumber) {
+        for (const p of l.pieces) {
+          boxes.push({ x, y: 0, z: 0, w: p.width, d: p.length, h: p.thickness, species: l.species, grain: 'y' });
+          x += p.width + gapOf(p.width) * 2;
+        }
+      }
+      out.mill = { boxes };
+    }
+
+    // Strips, spread apart in glue order, one row per panel.
+    {
+      const boxes = [];
+      const labels = [];
+      let y = 0;
+      for (const p of r.panels) {
+        let x = 0;
+        const g = gapOf(p.width) * 0.6;
+        p.strips.forEach((s, i) => {
+          boxes.push({ x, y, z: 0, w: s.rip, d: p.length, h: p.milled, species: s.species, grain: 'y', seed: i * 13 + 7 });
+          labels.push({ x: x + s.rip / 2, y, z: p.milled, text: String(i + 1) });
+          x += s.rip + g;
+        });
+        y += p.length + gapOf(p.length) * 2;
+      }
+      out.rip = { boxes, labels };
+    }
+
+    // Each panel glued up.
+    for (const p of r.panels) {
+      const boxes = [];
+      let x = 0;
+      p.strips.forEach((s, i) => {
+        boxes.push({ x, y: 0, z: 0, w: s.rip, d: p.length, h: p.milled, species: s.species, grain: 'y', seed: i * 13 + 7 });
+        x += s.rip;
+      });
+      out[`glue1-${p.id}`] = { boxes };
+    }
+
+    // All panels planed.
+    {
+      const boxes = [];
+      let x = 0;
+      for (const p of r.panels) {
+        let xx = x;
+        p.strips.forEach((s, i) => {
+          boxes.push({ x: xx, y: 0, z: 0, w: s.rip, d: p.length, h: p.thickness, species: s.species, grain: 'y', seed: i * 13 + 7 });
+          xx += s.rip;
+        });
+        x = xx + gapOf(p.width) * 2;
+      }
+      out.plane = { boxes };
+    }
+
+    // The first panel crosscut into slices, pulled apart.
+    {
+      const p = r.panels[0];
+      const boxes = [];
+      const labels = [];
+      const n = Math.min(p.slices, 12);
+      const g = gapOf(p.sliceLength) * 3;
+      for (let j = 0; j < n; j++) {
+        let x = 0;
+        const y = j * (p.sliceLength + g);
+        p.strips.forEach((s, i) => {
+          boxes.push({ x, y, z: 0, w: s.rip, d: p.sliceLength, h: p.thickness, species: s.species, grain: 'y', seed: i * 13 + 7 });
+          x += s.rip;
+        });
+        labels.push({ x: -IN * 0.6, y: y + p.sliceLength / 2, z: p.thickness, text: String(j + 1) });
+      }
+      out.crosscut = { boxes, labels };
+    }
+
+    // The finished arrangement, end grain up. Rows slightly apart for the
+    // layout step, together for the glue-up and after.
+    const boardBoxes = (rowGap) =>
+      r.blocks.map((b) => {
+        const dy = b.row * rowGap;
+        return {
+          x: b.x,
+          y: b.y + dy,
+          z: 0,
+          w: b.w,
+          d: b.d,
+          h: r.board.thickness,
+          species: b.species,
+          grain: 'z',
+          seed: b.stick ? b.stick.length * 97 + b.stick.charCodeAt(b.stick.length - 1) * 31 + (r.grain === 'matched' ? 0 : b.row * 7) : 1,
+          decor: b.accent ? [{ poly: b.accent.poly.map(([x, y]) => [x, y + dy]), species: b.accent.species }] : null,
+        };
+      });
+    out.layout = { boxes: boardBoxes(gapOf(r.board.length) * 0.5), labels: r.rows.map((row, i) => ({ x: -IN * 0.6, y: r.blocks.find((b) => b.row === i).y + i * gapOf(r.board.length) * 0.5 + row.thickness / 2, z: r.board.thickness, text: `${i + 1}${row.flip ? '⇄' : ''}` })) };
+    out.glue2 = { boxes: boardBoxes(0) };
+    out.trim = { boxes: boardBoxes(0) };
+    out.finish = { boxes: boardBoxes(0), yaw: -38, pitch: 42 };
+
+    // One stick end with its accent, for the accent steps.
+    const b0 = r.blocks.find((b) => b.accent);
+    if (b0) {
+      const decor = [{ poly: b0.accent.poly.map(([x, y]) => [x - b0.x, y - b0.y]), species: b0.accent.species }];
+      out['accent-glue'] = { boxes: [{ x: 0, y: 0, z: 0, w: b0.w, d: b0.d, h: b0.d * 2.2, species: b0.species, grain: 'z', decor }], yaw: -30, pitch: 40 };
+    }
+    return out;
+  }
+
+  CB.illustrate = { draw, stages };
+})(typeof window !== 'undefined' ? window : globalThis);

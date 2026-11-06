@@ -839,6 +839,187 @@ dialog menu {
   transform: translate(-50%, 0);
 }
 
+/* Build steps */
+.plan-view {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+.plan-bar,
+.plan-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px));
+  background: var(--panel);
+  flex: none;
+}
+.plan-bar {
+  border-bottom: 1px solid var(--line);
+}
+.plan-nav {
+  border-top: 1px solid var(--line);
+  padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
+}
+.plan-nav > button {
+  min-width: 88px;
+}
+.plan-track {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+.plan-track::-webkit-scrollbar {
+  display: none;
+}
+.plan-step {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  overflow-y: auto;
+  padding: 24px 16px 32px;
+}
+.plan-card {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.plan-card .eyebrow {
+  margin: 0;
+  color: var(--accent);
+  font-weight: 650;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.plan-card h2 {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+.plan-card .lead {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.plan-card canvas.pic {
+  width: 100%;
+  height: 280px;
+  display: block;
+  border-radius: var(--radius);
+  background: radial-gradient(ellipse at center, var(--panel-2), var(--stage));
+}
+@media (max-width: 720px) {
+  .plan-card canvas.pic {
+    height: 210px;
+  }
+  .plan-card h2 {
+    font-size: 22px;
+  }
+}
+.plan-card .note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.plan-card .t {
+  font-size: 14px;
+}
+.plan-card .diagram-wrap {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin: 0;
+}
+.plan-card .diagram text {
+  fill: currentColor;
+}
+.plan-card .diagram rect + text,
+.plan-card .diagram polygon + text {
+  fill: inherit;
+}
+.plan-card .split {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.plan-card .split > * {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.plan-card ol.order {
+  margin: 0;
+  padding-left: 24px;
+  columns: 2;
+  font-size: 14px;
+}
+.plan-card ol.order li {
+  margin: 2px 0;
+}
+.plan-card ul.checks {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.plan-card .done {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 10px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--panel);
+  font-weight: 600;
+  cursor: pointer;
+}
+.plan-card .done input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+.plan-card .done:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.plan-dots {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.plan-dots button {
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-strong);
+  background: transparent;
+}
+.plan-dots button.done {
+  background: var(--line-strong);
+}
+.plan-dots button.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  transform: scale(1.25);
+}
+
 /* Shop sheet */
 .sheet-view {
   position: fixed;
