@@ -175,3 +175,27 @@ test('accent only on one wood, alternating direction', () => {
   assert.ok(r.blocks.filter((b) => b.species === 'sp_maple').every((b) => b.accent && b.accent.species === 'sp_padauk'));
   assert.equal(r.total.angleRips, 4);
 });
+
+test('turning a stick turns its accent; every other row can turn too', () => {
+  const d = engine.newDesign('Turns');
+  d.pattern = 'stripes';
+  d.strips = d.strips.map((s, i) => ({ ...s, species: 'sp_walnut', rot: i % 2 ? 90 : 0 }));
+  d.accent = { ...engine.DEFAULT_ACCENT, enabled: true, offset: 0, species: 'sp_purpleheart' };
+  const n = engine.normalizeDesign(d);
+  assert.equal(n.strips[1].rot, 90);
+  assert.equal(n.strips[0].rot, undefined);
+  const r = engine.compute(n, species.defaults());
+  const bbox = (poly) => {
+    const xs = poly.map((p) => p[0]);
+    const ys = poly.map((p) => p[1]);
+    return [Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
+  };
+  const row0 = r.blocks.filter((b) => b.row === 0);
+  // At 60 degrees a centred line is steep; turned 90 degrees it lies flatter.
+  const [w0, h0] = bbox(row0[0].accent.poly);
+  const [w1, h1] = bbox(row0[1].accent.poly);
+  assert.ok(h0 > w0 && w1 > h1);
+  assert.equal(r.warnings.length, 0);
+  n.rowTurn = true;
+  assert.equal(engine.compute(n, species.defaults()).rows[1].flip, true);
+});

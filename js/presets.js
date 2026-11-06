@@ -14,7 +14,8 @@
     H: 'sp_mahogany',
     Z: 'sp_zebrawood',
   };
-  const accent = (species, alternate = false) => ({ enabled: true, angle: 60, offset: 0.2, thickness: IN / 8, species, on: 'all', alternate });
+  const accent = (species, alternate = false, offset = 0.2) => ({ enabled: true, angle: 60, offset, thickness: IN / 8, species, on: 'all', alternate });
+  const turned = (list, deg) => list.map((st, i) => (i % 2 ? { ...st, rot: deg } : st));
   // "M1.5 W.25" -> strips. Widths in inches.
   const strips = (text) =>
     text
@@ -29,6 +30,16 @@
       name: 'Walnut with purpleheart accents',
       blurb: 'Walnut squares, each crossed by a purpleheart line at 60\u00b0.',
       design: { pattern: 'stripes', strips: strips(repeat('W1.5', 8)), rows: 10, rowDepth: 1.5 * IN, thickness: 1.5 * IN, accent: accent(SP.P) },
+    },
+    {
+      name: 'Walnut with centred accents',
+      blurb: 'Purpleheart lines through the centre of each walnut square, so each square is symmetrical.',
+      design: { pattern: 'stripes', strips: strips(repeat('W1.5', 8)), rows: 10, rowDepth: 1.5 * IN, thickness: 1.5 * IN, accent: accent(SP.P, false, 0) },
+    },
+    {
+      name: 'Turned accents',
+      blurb: 'Walnut and purpleheart with every other stick turned 90\u00b0 and every other row turned end for end.',
+      design: { pattern: 'stripes', strips: turned(strips(repeat('W1.5', 8)), 90), rows: 10, rowDepth: 1.5 * IN, rowTurn: true, thickness: 1.5 * IN, accent: accent(SP.P) },
     },
     {
       name: 'Zebrawood with purpleheart accents',

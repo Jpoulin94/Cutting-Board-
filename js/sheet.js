@@ -59,7 +59,7 @@
         const w = st.rip * s;
         const out = `<rect x="${x}" y="0" width="${w}" height="${h}" fill="${sp.color}" stroke="#000" stroke-width="0.8"/>
           ${w > 12 ? `<text x="${x + w / 2}" y="${h / 2 + 4}" fill="${textOn(sp.color)}">${esc(code[st.species] || '')}</text>` : ''}
-          <text x="${x + w / 2}" y="${h + 13}" class="num">${i + 1}</text>`;
+          <text x="${x + w / 2}" y="${h + 13}" class="num">${i + 1}${st.rot ? ` \u21bb${st.rot}\u00b0` : ''}</text>`;
         x += w;
         return out;
       })
@@ -85,6 +85,17 @@
       })
       .join('');
     return `<svg class="diagram" viewBox="-1 -1 ${142 + shiftPx} ${y + 2}" width="${142 + shiftPx}" height="${y + 2}" font-size="10" text-anchor="middle">${items}</svg>`;
+  }
+
+  // "Turn sticks 2, 4 and 6 a quarter turn clockwise…"
+  function turnNote(p) {
+    const by = {};
+    p.strips.forEach((st, i) => {
+      if (st.rot) (by[st.rot] = by[st.rot] || []).push(i + 1);
+    });
+    const words = { 90: 'a quarter turn clockwise (90\u00b0)', 180: 'half a turn (180\u00b0)', 270: 'a quarter turn counter-clockwise (270\u00b0)' };
+    const lines = Object.entries(by).map(([deg, list]) => `Turn stick${list.length > 1 ? 's' : ''} ${list.join(', ')} ${words[deg]} on its long axis before gluing, looking at the same end of every stick.`);
+    return lines.length ? `<p><b>${lines.join(' ')}</b></p>` : '';
   }
 
   function accentSection(r, speciesList, fmt) {
@@ -172,6 +183,7 @@
         ${panelSvg(p, speciesList, code, fmt)}
         <p>Glued width ${fmt(p.width)} · length ${fmt(p.length)} · plane to ${fmt(p.thickness)} thick (from ${fmt(p.milled)}).
         ${p.strips.length > 1 ? `The two outside strips are ${fmt(S.edgeTrim)} wider for trimming the board's edges.` : ''}</p>
+        ${turnNote(p)}
       </div>`
       )
       .join('');
@@ -266,5 +278,5 @@
     </article>`;
   }
 
-  CB.sheet = { html, boardSvg, panelSvg, rowsSvg, codes, esc, textOn, money };
+  CB.sheet = { turnNote, html, boardSvg, panelSvg, rowsSvg, codes, esc, textOn, money };
 })(typeof window !== 'undefined' ? window : globalThis);

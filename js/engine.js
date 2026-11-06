@@ -80,7 +80,12 @@
 
   function normStrips(list, fallback) {
     if (!Array.isArray(list) || !list.length) return fallback;
-    return list.map((s) => ({ width: pos(s && s.width, IN), species: String((s && s.species) || 'sp_maple') }));
+    return list.map((s) => {
+      const rot = Math.round(num(s && s.rot, 0) / 90) * 90;
+      const out = { width: pos(s && s.width, IN), species: String((s && s.species) || 'sp_maple') };
+      if (rot % 360) out.rot = ((rot % 360) + 360) % 360;
+      return out;
+    });
   }
 
   function normalizeDesign(d) {
@@ -96,6 +101,7 @@
       rowDepth: pos(d.rowDepth, base.rowDepth),
       brickShift: Math.min(0.9, Math.max(0.1, num(d.brickShift, 0.5))),
       brickFlip: !!d.brickFlip,
+      rowTurn: !!d.rowTurn,
       panels: Array.isArray(d.panels) && d.panels.length
         ? d.panels.map((p, i) => ({
             id: typeof p.id === 'string' ? p.id : uid('p'),
@@ -153,8 +159,10 @@
     let panels = [A];
 
     if (d.pattern === 'stripes') {
-      for (let r = 0; r < d.rows; r++) rows.push({ panel: 'A', flip: false, offset: 0 });
-      method = 'Crosscut the panel and turn every slice end grain up, all facing the same way.';
+      for (let r = 0; r < d.rows; r++) rows.push({ panel: 'A', flip: !!d.rowTurn && r % 2 === 1, offset: 0 });
+      method = d.rowTurn
+        ? 'Crosscut the panel, turn every slice end grain up, and turn every other slice end for end.'
+        : 'Crosscut the panel and turn every slice end grain up, all facing the same way.';
     } else if (d.pattern === 'checker') {
       if (strips.length % 2 === 0) {
         for (let r = 0; r < d.rows; r++) rows.push({ panel: 'A', flip: r % 2 === 1, offset: 0 });
@@ -168,7 +176,7 @@
           thickness: d.rowDepth,
           strips: strips.map((s, i) => {
             const from = i === 0 ? Math.min(1, strips.length - 1) : i - 1;
-            return { width: s.width, species: strips[from].species, ref: { strip: from } };
+            return { width: s.width, species: strips[from].species, rot: strips[from].rot, ref: { strip: from } };
           }),
         };
         panels = [A, B];
@@ -259,6 +267,21 @@
     return Math.max(0, t1 - t0);
   }
 
+  // Turns a stick's cross-section about its centre (clockwise, in degrees).
+  function turn(poly, w, d, deg) {
+    const t = (deg * Math.PI) / 180;
+    const c = Math.cos(t);
+    const sn = Math.sin(t);
+    const cx = w / 2;
+    const cy = d / 2;
+    let out = poly.map(([u, v]) => [cx + (u - cx) * c - (v - cy) * sn, cy + (u - cx) * sn + (v - cy) * c]);
+    out = clip(out, 1, 0, w);
+    out = clip(out, -1, 0, 0);
+    out = clip(out, 0, 1, d);
+    out = clip(out, 0, -1, 0);
+    return out;
+  }
+
   function compute(design, speciesList) {
     const d = design;
     const S = d.settings;
@@ -314,6 +337,7 @@
             // A flipped slice is turned end for end in place, so its
             // cross-section is rotated half a turn.
             let poly = accentBand(s.width, p.thickness, A, s.accent.mirrored);
+            if (s.rot) poly = turn(poly, s.width, p.thickness, s.rot);
             if (r.flip) poly = poly.map(([u, v]) => [s.width - u, p.thickness - v]);
             poly = poly.map(([u, v]) => [x + u - start, y + v]);
             poly = clip(poly, 1, 0, x1 - start);
@@ -439,6 +463,8 @@
     };
     total.ripKerf += total.angleRips * S.kerfRip;
 
+    const skew = g.panels.some((p) => p.strips.some((st) => (st.rot === 90 || st.rot === 270) && Math.abs(st.width - p.thickness) > 0.5));
+    if (skew) warnings.push('A stick turned 90\u00b0 or 270\u00b0 swaps its width and depth. Make the strip width match the row depth so the squares stay square.');
     if (boardWidth <= 0) warnings.push('The rows don’t overlap, so there’s no board left after trimming.');
 
     return {

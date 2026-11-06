@@ -139,6 +139,7 @@
           <span class="n">${i + 1}</span>
           ${speciesSelect(`${ctx}:${i}`, s.species)}
           ${lenInput(`strip:${ctx}:${i}`, s.width, { label: `Strip ${i + 1} width` })}
+          <button class="turn${s.rot ? ' on' : ''}" data-act="turnStrip" data-ctx="${ctx}" data-i="${i}" title="Turn this stick on its long axis" aria-label="Turn strip ${i + 1}, now ${s.rot || 0} degrees">↻${s.rot || 0}°</button>
           <button class="x" data-act="delStrip" data-ctx="${ctx}" data-i="${i}" title="Remove strip" aria-label="Remove strip ${i + 1}"${strips.length < 2 ? ' disabled' : ''}>✕</button>
         </div>`;
       })
@@ -151,6 +152,11 @@
         <button class="small" data-act="addStrip" data-ctx="${ctx}">+ Strip</button>
         <button class="small" data-act="reverse" data-ctx="${ctx}">Reverse order</button>
         <button class="small" data-act="mirror" data-ctx="${ctx}">Mirror</button>
+      </div>
+      <div class="fill">Turn
+        <select class="plain" data-turn-which="${ctx}"><option value="even">every other strip</option><option value="all">all strips</option></select> by
+        <select class="plain" data-turn-deg="${ctx}"><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option><option value="0">0° (reset)</option></select>
+        <button class="small" data-act="turnBulk" data-ctx="${ctx}">Apply</button>
       </div>
       <div class="fill">Alternate
         <select class="plain" data-fill-a="${ctx}">${optsSel(a)}</select> and
@@ -207,6 +213,9 @@
         ${field('Strip width', lenInput('stripWidthAll', uniform ? widths[0] : NaN, { placeholder: 'mixed' }), 'Sets every strip')}
         ${field('Rows', numInput('rows', d.rows, { max: 80 }), 'Slices along the length')}
         ${field('Row depth', lenInput('rowDepth', d.rowDepth), 'The strip panel’s thickness')}`;
+      if (d.pattern === 'stripes') {
+        html += `<label class="check"><input type="checkbox" data-row-turn${d.rowTurn ? ' checked' : ''}/> Turn every other row end for end</label>`;
+      }
       if (d.pattern === 'brick') {
         const opts = [0.25, 1 / 3, 0.5, 2 / 3, 0.75];
         const labels = ['1/4', '1/3', '1/2', '2/3', '3/4'];
@@ -343,7 +352,7 @@
         ${r.panels
           .map(
             (p) => `<div><b>Panel ${esc(p.name)}</b> <span class="muted">· ${p.strips.length} strips · ${fmt(p.width)} wide × ${fmt(p.length)} long · plane to ${fmt(p.thickness)}</span>
-            <div class="diagram-wrap">${sheet.panelSvg(p, speciesList, code, fmt, 320)}</div></div>`
+            <div class="diagram-wrap">${sheet.panelSvg(p, speciesList, code, fmt, 320)}</div>${sheet.turnNote(p).replace('<p>', '<p class="method">')}</div>`
           )
           .join('')}
         <h2 style="margin-top:6px">Glue-up 2: slices</h2>
@@ -371,6 +380,9 @@
         .map((sp) => `<button data-pick="${sp.id}" aria-pressed="${sp.id === s.species}"><i class="sw" style="background:${sp.color}"></i>${esc(sp.name)}</button>`)
         .join('')}</div>
       <div class="field" style="margin:10px 0 0">${'<label>Width</label>'}${lenInput(`pickW`, s.width)}</div>
+      <div class="turns"><span>Turn stick</span>${[0, 90, 180, 270]
+        .map((deg) => `<button class="small" data-act="turnPick" data-deg="${deg}" aria-pressed="${(s.rot || 0) === deg}">${deg}°</button>`)
+        .join('')}</div>
       <div class="row-actions"><button class="small" data-act="closePicker">Done</button></div>`;
   }
 
@@ -427,6 +439,7 @@
       });
     }
     if (ds.brickShift !== undefined) return commit((d) => (d.brickShift = Number(t.value)));
+    if (ds.rowTurn !== undefined) return commit((d) => (d.rowTurn = t.checked));
     if (ds.brickFlip !== undefined) return commit((d) => (d.brickFlip = t.checked));
     if (ds.panelName !== undefined) return commit((d) => (d.panels.find((p) => p.id === ds.panelName).name = t.value.trim() || '?'));
     if (ds.rowPanel !== undefined) return commit((d) => (d.rowPlan[Number(ds.rowPanel)].panel = t.value));
@@ -451,6 +464,20 @@
     if (!act) return;
     const ctx = ds.ctx;
     switch (act) {
+      case 'turnStrip':
+        return commit(() => {
+          const st = stripsOf(ctx)[Number(ds.i)];
+          st.rot = ((st.rot || 0) + 90) % 360;
+        });
+      case 'turnBulk': {
+        const which = $(`[data-turn-which="${ctx}"]`).value;
+        const deg = Number($(`[data-turn-deg="${ctx}"]`).value);
+        return commit(() => stripsOf(ctx).forEach((st, i) => {
+          if (which === 'all' || i % 2 === 1) st.rot = deg;
+        }));
+      }
+      case 'turnPick':
+        return commit(() => (refStrip(selected).rot = Number(ds.deg)));
       case 'addStrip':
         return commit(() => resize(stripsOf(ctx), stripsOf(ctx).length + 1));
       case 'delStrip':
