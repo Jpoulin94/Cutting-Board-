@@ -1,0 +1,737 @@
+// User interface.
+(function () {
+  'use strict';
+  const { units, engine, storage, sheet } = CB;
+  const IN = engine.IN;
+  const esc = sheet.esc;
+  const $ = (sel, el = document) => el.querySelector(sel);
+  const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
+
+  let prefs = storage.loadPrefs();
+  let speciesList = storage.loadSpecies();
+  let design = storage.loadCurrent() || freshDesign('My first board');
+  let result = null;
+  let selected = null;
+  let undo = [];
+  let redo = [];
+  let lastSaved = savedSnapshotFor(design);
+  let pristine = null; // a new board nobody has changed yet
+
+  function freshDesign(name) {
+    return engine.normalizeDesign({ ...engine.newDesign(name), settings: { ...engine.DEFAULT_SETTINGS, ...(prefs.defaults || {}) } });
+  }
+  function snapshot(d = design) {
+    const { savedAt, ...rest } = d;
+    return JSON.stringify(rest);
+  }
+  function savedSnapshotFor(d) {
+    return storage.listDesigns().some((x) => x.id === d.id) ? snapshot(storage.loadDesign(d.id)) : null;
+  }
+
+  // ---------- formatting and inputs ----------
+  const fmt = (mm, unit = true) => units.format(mm, prefs, unit);
+  const unitLabel = () => (prefs.units === 'mm' ? 'mm' : 'in');
+
+  function lenInput(key, value, opts = {}) {
+    const v = value == null || Number.isNaN(value) ? '' : fmt(value, false);
+    return `<div class="inp"><input type="text" inputmode="decimal" data-len="${key}" value="${esc(v)}" placeholder="${esc(opts.placeholder || '')}" aria-label="${esc(opts.label || key)}" /><span>${unitLabel()}</span></div>`;
+  }
+  function numInput(key, value, opts = {}) {
+    return `<div class="inp"><input type="number" data-num="${key}" value="${value}" min="${opts.min ?? 1}" max="${opts.max ?? 99}" step="${opts.step ?? 1}" aria-label="${esc(opts.label || key)}" />${opts.suffix ? `<span>${opts.suffix}</span>` : ''}</div>`;
+  }
+  function field(label, control, help) {
+    return `<div class="field"><label>${label}${help ? `<small>${help}</small>` : ''}</label>${control}</div>`;
+  }
+  function speciesSelect(key, value) {
+    const sp = CB.species.byId(speciesList, value);
+    return `<div class="sp-select"><i class="sw" style="background:${sp.color}"></i><select data-sp="${key}" aria-label="Species">${speciesList
+      .map((s) => `<option value="${s.id}"${s.id === value ? ' selected' : ''}>${esc(s.name)}</option>`)
+      .join('')}${speciesList.some((s) => s.id === value) ? '' : `<option value="${esc(value)}" selected>Unknown species</option>`}</select></div>`;
+  }
+
+  // ---------- changes, undo, autosave ----------
+  function commit(fn) {
+    const before = snapshot();
+    fn(design);
+    design = engine.normalizeDesign({ ...design, savedAt: design.savedAt });
+    if (snapshot() !== before) {
+      undo.push(before);
+      if (undo.length > 200) undo.shift();
+      redo = [];
+    }
+    update();
+  }
+  function restoreSnap(s) {
+    const savedAt = design.savedAt;
+    design = engine.normalizeDesign(JSON.parse(s));
+    design.savedAt = savedAt;
+    if (selected && !refStrip(selected)) selected = null;
+    update();
+  }
+  function doUndo() {
+    if (!undo.length) return;
+    redo.push(snapshot());
+    restoreSnap(undo.pop());
+  }
+  function doRedo() {
+    if (!redo.length) return;
+    undo.push(snapshot());
+    restoreSnap(redo.pop());
+  }
+
+  function update() {
+    result = engine.compute(design, speciesList);
+    if (selected && !refStrip(selected)) selected = null;
+    renderLeft();
+    renderRight();
+    renderPicker();
+    preview.set(result, speciesList, selected);
+    $('#dims').textContent = `${fmt(result.board.width)} × ${fmt(result.board.length)} × ${fmt(result.board.thickness)}`;
+    $('#designName').value = design.name;
+    $$('.units button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.units === prefs.units)));
+    $('#btnUndo').disabled = !undo.length;
+    $('#btnRedo').disabled = !redo.length;
+    const s = snapshot();
+    $('#saveState').textContent = lastSaved === null ? 'Not saved yet' : lastSaved === s ? 'Saved' : 'Unsaved changes';
+    storage.saveCurrent(design);
+    document.title = `${design.name} · Cutting Board Designer`;
+  }
+
+  // ---------- strips ----------
+  function stripsOf(ctx) {
+    if (ctx === 'main') return design.strips;
+    const p = design.panels.find((x) => x.id === ctx);
+    return p ? p.strips : [];
+  }
+  function refStrip(ref) {
+    if (!ref) return null;
+    if (ref.strip != null) return design.strips[ref.strip] || null;
+    const p = design.panels.find((x) => x.id === ref.panel);
+    return p ? p.strips[ref.index] || null : null;
+  }
+  function refOf(ctx, i) {
+    return ctx === 'main' ? { strip: i } : { panel: ctx, index: i };
+  }
+  function resize(list, n) {
+    while (list.length < n) {
+      const prev = list[list.length - 2] || list[list.length - 1] || { width: IN, species: 'sp_maple' };
+      list.push({ width: list[list.length - 1] ? list[list.length - 1].width : IN, species: prev.species });
+    }
+    list.length = n;
+  }
+
+  function stripsHtml(ctx, strips) {
+    const sel = selected && CB.preview.sameRef;
+    const rows = strips
+      .map((s, i) => {
+        const isSel = sel && CB.preview.sameRef(selected, refOf(ctx, i));
+        return `<div class="strip-row${isSel ? ' sel' : ''}">
+          <span class="n">${i + 1}</span>
+          ${speciesSelect(`${ctx}:${i}`, s.species)}
+          ${lenInput(`strip:${ctx}:${i}`, s.width, { label: `Strip ${i + 1} width` })}
+          <button class="x" data-act="delStrip" data-ctx="${ctx}" data-i="${i}" title="Remove strip" aria-label="Remove strip ${i + 1}"${strips.length < 2 ? ' disabled' : ''}>✕</button>
+        </div>`;
+      })
+      .join('');
+    const opts = speciesList.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+    const [a, b] = [strips[0] ? strips[0].species : speciesList[0].id, (strips.find((s) => s.species !== strips[0].species) || strips[1] || strips[0] || {}).species];
+    const optsSel = (v) => speciesList.map((s) => `<option value="${s.id}"${s.id === v ? ' selected' : ''}>${esc(s.name)}</option>`).join('');
+    return `<div class="strip-list">${rows}</div>
+      <div class="row-actions">
+        <button class="small" data-act="addStrip" data-ctx="${ctx}">+ Strip</button>
+        <button class="small" data-act="reverse" data-ctx="${ctx}">Reverse order</button>
+        <button class="small" data-act="mirror" data-ctx="${ctx}">Mirror</button>
+      </div>
+      <div class="fill">Alternate
+        <select class="plain" data-fill-a="${ctx}">${optsSel(a)}</select> and
+        <select class="plain" data-fill-b="${ctx}">${optsSel(b)}</select>
+        <button class="small" data-act="alternate" data-ctx="${ctx}">Apply</button>
+      </div>`;
+  }
+
+  // ---------- left panel ----------
+  function patternIcon(p) {
+    const c = ['#ead9b8', '#4b3428'];
+    let cells = '';
+    for (let r = 0; r < 4; r++)
+      for (let k = 0; k < 6; k++) {
+        let fill;
+        let x = k * 7;
+        let w = 7;
+        let h = 7;
+        let y = r * 7;
+        if (p === 'stripes') fill = c[k % 2];
+        else if (p === 'checker') fill = c[(k + r) % 2];
+        else if (p === 'brick') {
+          fill = c[k % 2];
+          if (r % 2) x += 3.5;
+        } else {
+          fill = r % 3 === 2 ? ['#a8603c', '#ead9b8'][k % 2] : c[k % 2];
+          h = r % 3 === 2 ? 4 : 7;
+          y = [0, 7, 14, 18][r];
+        }
+        cells += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}"/>`;
+      }
+    return `<svg viewBox="0 0 42 28" aria-hidden="true"><clipPath id="c${p}"><rect width="42" height="${p === 'plaid' ? 25 : 28}"/></clipPath><g clip-path="url(#c${p})">${cells}</g></svg>`;
+  }
+
+  function renderLeft() {
+    const el = $('#leftPanel');
+    const focus = document.activeElement && el.contains(document.activeElement) ? focusKey(document.activeElement) : null;
+    const d = design;
+    const S = d.settings;
+    const plaid = d.pattern === 'plaid';
+    const widths = d.strips.map((s) => s.width);
+    const uniform = widths.every((w) => Math.abs(w - widths[0]) < 1e-6);
+
+    let html = `<section class="section"><h2>Pattern</h2>
+      <div class="patterns">${Object.entries(engine.PATTERNS)
+        .map(([k, p]) => `<button data-pattern="${k}" aria-pressed="${d.pattern === k}">${patternIcon(k)}${esc(p.label)}</button>`)
+        .join('')}</div>
+      <p class="blurb">${esc(engine.PATTERNS[d.pattern].blurb)}</p></section>`;
+
+    html += `<section class="section"><h2>Board</h2>
+      ${field('Thickness', lenInput('thickness', d.thickness), 'Finished, after flattening')}`;
+    if (!plaid) {
+      html += `${field('Strips', numInput('stripCount', d.strips.length, { max: 60 }), 'Columns across the width')}
+        ${field('Strip width', lenInput('stripWidthAll', uniform ? widths[0] : NaN, { placeholder: 'mixed' }), 'Sets every strip')}
+        ${field('Rows', numInput('rows', d.rows, { max: 80 }), 'Slices along the length')}
+        ${field('Row depth', lenInput('rowDepth', d.rowDepth), 'The strip panel’s thickness')}`;
+      if (d.pattern === 'brick') {
+        const opts = [0.25, 1 / 3, 0.5, 2 / 3, 0.75];
+        const labels = ['1/4', '1/3', '1/2', '2/3', '3/4'];
+        html += field(
+          'Brick shift',
+          `<div class="inp"><select data-brick-shift>${opts
+            .map((o, i) => `<option value="${o}"${Math.abs(o - d.brickShift) < 0.01 ? ' selected' : ''}>${labels[i]} strip</option>`)
+            .join('')}</select></div>`,
+          'How far every other row slides'
+        );
+        html += `<label class="check"><input type="checkbox" data-brick-flip${d.brickFlip ? ' checked' : ''}/> Also flip the shifted rows end for end</label>`;
+      }
+    }
+    html += `<div class="readout">Finished board: <b>${fmt(result.board.width)} × ${fmt(result.board.length)} × ${fmt(result.board.thickness)}</b></div></section>`;
+
+    if (!plaid) {
+      html += `<section class="section"><h2>Strips <span class="muted">left to right</span></h2>${stripsHtml('main', d.strips)}</section>`;
+    } else {
+      html += `<section class="section"><h2>Panels <button class="small" data-act="addPanel">+ Panel</button></h2>
+        ${d.panels
+          .map(
+            (p) => `<div class="panel-card">
+            <h3><span>Panel <input class="plain" style="width:52px" data-panel-name="${p.id}" value="${esc(p.name)}" aria-label="Panel name"/></span>
+              <button class="x" data-act="delPanel" data-panel="${p.id}" title="Delete panel"${d.panels.length < 2 ? ' disabled' : ''}>✕</button></h3>
+            ${field('Row depth', lenInput(`panelT:${p.id}`, p.thickness), 'This panel’s thickness')}
+            ${stripsHtml(p.id, p.strips)}
+          </div>`
+          )
+          .join('')}
+      </section>
+      <section class="section"><h2>Row order <span class="muted">top to bottom</span></h2>
+        <div class="rowplan">${d.rowPlan
+          .map(
+            (r, i) => `<div class="r"><b>${i + 1}</b>
+            <select data-row-panel="${i}" aria-label="Row ${i + 1} panel">${d.panels.map((p) => `<option value="${p.id}"${p.id === r.panel ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
+            <label title="Flip end for end"><input type="checkbox" data-row-flip="${i}"${r.flip ? ' checked' : ''}/>flip</label>
+            <button class="x" data-act="delRow" data-i="${i}" aria-label="Remove row"${d.rowPlan.length < 2 ? ' disabled' : ''}>✕</button></div>`
+          )
+          .join('')}</div>
+        <div class="row-actions">
+          <button class="small" data-act="addRow">+ Row</button>
+          <button class="small" data-act="flipAlt">Flip every other row</button>
+        </div>
+        <div class="fill">Quick order <input class="plain" style="width:120px" data-row-text placeholder="e.g. AABAAB" value="${esc(d.rowPlan.map((r) => (d.panels.find((p) => p.id === r.panel) || {}).name || '?').join(''))}"/>
+          <button class="small" data-act="rowText">Apply</button></div>
+      </section>`;
+    }
+
+    html += `<details class="section" ${prefs.allowOpen ? 'open' : ''} data-allow><summary>Kerf and allowances</summary>
+      ${field('Rip kerf', lenInput('set:kerfRip', S.kerfRip), 'Blade width for ripping strips')}
+      ${field('Crosscut kerf', lenInput('set:kerfCross', S.kerfCross), 'Blade width for the final crosscuts')}
+      ${field('Flattening', lenInput('set:flatten', S.flatten), 'Added to each slice’s length')}
+      ${field('Panel planing', lenInput('set:panelPlane', S.panelPlane), 'Extra stock thickness')}
+      ${field('End trim', lenInput('set:endTrim', S.endTrim), 'Squaring each panel’s ends')}
+      ${field('Edge trim', lenInput('set:edgeTrim', S.edgeTrim), 'Per long edge of the board')}
+      ${field('Waste factor', numInput('set:waste', S.waste, { min: 0, max: 100, suffix: '%' }), 'Added to lumber to buy')}
+      ${field('Round inches to', `<div class="inp"><select data-precision><option value="16"${prefs.precision === 16 ? ' selected' : ''}>1/16"</option><option value="32"${prefs.precision === 32 ? ' selected' : ''}>1/32"</option></select></div>`)}
+      <div class="row-actions">
+        <button class="small" data-act="saveDefaults">Use these for new boards</button>
+        <button class="small" data-act="resetDefaults">Reset to standard</button>
+      </div>
+    </details>`;
+
+    el.innerHTML = html;
+    if (focus) {
+      const f = $(focus, el);
+      if (f) {
+        f.focus();
+        if (f.select && f.type === 'text') f.select();
+      }
+    }
+  }
+
+  function focusKey(node) {
+    for (const a of node.getAttributeNames()) if (a.startsWith('data-')) return `[${a}="${CSS.escape(node.getAttribute(a))}"]`;
+    return null;
+  }
+
+  // ---------- right panel ----------
+  function renderRight() {
+    const r = result;
+    const S = r.settings;
+    const used = [...new Set(r.panels.flatMap((p) => p.strips.map((s) => s.species)))];
+    const code = sheet.codes(speciesList, used);
+    const money = sheet.money;
+    const lumberRows = r.lumber
+      .map(
+        (l) => `<tr><td><i class="sw" style="background:${l.color}"></i>${esc(l.name)}</td>
+        <td>${l.pieces.map((p) => `${fmt(p.thickness)} <span class="muted">(${p.rough.laminate ? `${p.rough.layers}×8/4` : `${p.rough.quarters}/4`})</span><br><span class="muted">${fmt(p.width)} × ${fmt(p.length)}</span>`).join('<br>')}</td>
+        <td class="r">${l.bfBuy.toFixed(2)}</td><td class="r">${money(l.cost)}</td></tr>`
+      )
+      .join('');
+    const kerfLines = r.panels
+      .map((p) => `${r.panels.length > 1 ? `Panel ${esc(p.name)}: ` : ''}<b>${p.cuts} crosscuts × ${fmt(S.kerfCross)} = ${fmt(p.crossKerf)}</b> of length lost`)
+      .join('<br>');
+
+    $('#rightPanel').innerHTML = `
+      <section class="section"><h2>Finished board</h2>
+        <div class="big">${fmt(r.board.width)} × ${fmt(r.board.length)} × ${fmt(r.board.thickness)}</div>
+        <div class="stats" style="margin-top:10px">
+          <div class="stat"><small>Strips to rip</small><b>${r.total.rips}</b></div>
+          <div class="stat"><small>Slices to crosscut</small><b>${r.total.cuts}</b></div>
+          <div class="stat"><small>Lumber to buy</small><b>${r.total.bfBuy.toFixed(2)} bf</b></div>
+          <div class="stat"><small>Cost</small><b>${money(r.total.cost)}</b>${r.total.unpriced.length ? '<small>some prices missing</small>' : ''}</div>
+        </div>
+        <p class="kerf-line">${kerfLines}<br>${r.total.rips} rips × ${fmt(S.kerfRip)} = ${fmt(r.total.ripKerf)} of width lost</p>
+        ${r.warnings.map((w) => `<p class="warn">${esc(w)}</p>`).join('')}
+      </section>
+      <section class="section"><h2>Lumber needed</h2>
+        <table class="t"><thead><tr><th>Species</th><th>Milled thickness, width × length</th><th class="r">bf</th><th class="r">Cost</th></tr></thead>
+        <tbody>${lumberRows}</tbody>
+        <tfoot><tr><td colspan="2">Total (+${S.waste}% waste)</td><td class="r">${r.total.bfBuy.toFixed(2)}</td><td class="r">${money(r.total.cost)}</td></tr></tfoot></table>
+        ${r.total.unpriced.length ? `<p class="warn">No price yet for ${esc(r.total.unpriced.join(', '))}. <button class="small" data-act="species">Add prices</button></p>` : ''}
+      </section>
+      <section class="section"><h2>Glue-up 1: strip panels</h2>
+        ${r.panels
+          .map(
+            (p) => `<div><b>Panel ${esc(p.name)}</b> <span class="muted">· ${p.strips.length} strips · ${fmt(p.width)} wide × ${fmt(p.length)} long · plane to ${fmt(p.thickness)}</span>
+            <div class="diagram-wrap">${sheet.panelSvg(p, speciesList, code, fmt, 320)}</div></div>`
+          )
+          .join('')}
+        <h2 style="margin-top:6px">Glue-up 2: slices</h2>
+        <p class="method">Crosscut slices <b>${fmt(r.panels[0] ? r.panels[0].sliceLength : 0)}</b> long (${fmt(design.thickness)} + ${fmt(S.flatten)} flattening). ${esc(r.method)}${r.shift ? ` Shift: <b>${fmt(r.shift)}</b>.` : ''}</p>
+        <p style="margin-top:12px"><button class="primary" data-act="sheet">Open shop sheet</button></p>
+      </section>`;
+  }
+
+  // ---------- strip picker (from the 3D preview) ----------
+  function renderPicker() {
+    const el = $('#picker');
+    const s = refStrip(selected);
+    if (!s) {
+      el.hidden = true;
+      return;
+    }
+    const ref = selected;
+    const panel = ref.strip == null ? design.panels.find((p) => p.id === ref.panel) : null;
+    const index = ref.strip != null ? ref.strip : ref.index;
+    const count = result.blocks.filter((b) => CB.preview.sameRef(b.ref, ref)).length;
+    el.hidden = false;
+    el.innerHTML = `<h4>Strip ${index + 1}${panel ? ` · panel ${esc(panel.name)}` : ''}</h4>
+      <p>${count} blocks on the board come from this strip. Pick a species to change them all.</p>
+      <div class="swatches">${speciesList
+        .map((sp) => `<button data-pick="${sp.id}" aria-pressed="${sp.id === s.species}"><i class="sw" style="background:${sp.color}"></i>${esc(sp.name)}</button>`)
+        .join('')}</div>
+      <div class="field" style="margin:10px 0 0">${'<label>Width</label>'}${lenInput(`pickW`, s.width)}</div>
+      <div class="row-actions"><button class="small" data-act="closePicker">Done</button></div>`;
+  }
+
+  // ---------- events ----------
+  function onChange(e) {
+    const t = e.target;
+    const ds = t.dataset;
+    if (ds.len !== undefined) {
+      const v = units.parseLength(t.value, prefs.units);
+      const key = ds.len;
+      const allowZero = key.startsWith('set:');
+      if (!Number.isFinite(v) || v < 0 || (!allowZero && v === 0)) {
+        t.classList.add('bad');
+        toast('Enter a size like 1-1/2, 1.5 or 38mm.');
+        return;
+      }
+      t.classList.remove('bad');
+      commit((d) => {
+        if (key === 'thickness') d.thickness = v;
+        else if (key === 'rowDepth') d.rowDepth = v;
+        else if (key === 'stripWidthAll') d.strips.forEach((s) => (s.width = v));
+        else if (key.startsWith('set:')) d.settings[key.slice(4)] = v;
+        else if (key.startsWith('panelT:')) d.panels.find((p) => p.id === key.slice(7)).thickness = v;
+        else if (key.startsWith('strip:')) {
+          const [, ctx, i] = key.split(':');
+          stripsOf(ctx)[Number(i)].width = v;
+        } else if (key === 'pickW') refStrip(selected).width = v;
+      });
+      return;
+    }
+    if (ds.num !== undefined) {
+      const n = Number(t.value);
+      if (!Number.isFinite(n)) return;
+      commit((d) => {
+        if (ds.num === 'stripCount') resize(d.strips, Math.max(1, Math.min(60, Math.round(n))));
+        else if (ds.num === 'rows') d.rows = Math.max(1, Math.min(80, Math.round(n)));
+        else if (ds.num === 'set:waste') d.settings.waste = Math.max(0, Math.min(100, n));
+      });
+      return;
+    }
+    if (ds.sp !== undefined) {
+      const [ctx, i] = ds.sp.split(':');
+      commit(() => (stripsOf(ctx)[Number(i)].species = t.value));
+      return;
+    }
+    if (ds.brickShift !== undefined) return commit((d) => (d.brickShift = Number(t.value)));
+    if (ds.brickFlip !== undefined) return commit((d) => (d.brickFlip = t.checked));
+    if (ds.panelName !== undefined) return commit((d) => (d.panels.find((p) => p.id === ds.panelName).name = t.value.trim() || '?'));
+    if (ds.rowPanel !== undefined) return commit((d) => (d.rowPlan[Number(ds.rowPanel)].panel = t.value));
+    if (ds.rowFlip !== undefined) return commit((d) => (d.rowPlan[Number(ds.rowFlip)].flip = t.checked));
+    if (ds.precision !== undefined) {
+      prefs.precision = Number(t.value);
+      storage.savePrefs(prefs);
+      update();
+    }
+  }
+
+  function onClick(e) {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const ds = btn.dataset;
+    if (ds.pattern) {
+      selected = null;
+      return commit((d) => (d.pattern = ds.pattern));
+    }
+    if (ds.pick) return commit(() => (refStrip(selected).species = ds.pick));
+    const act = ds.act;
+    if (!act) return;
+    const ctx = ds.ctx;
+    switch (act) {
+      case 'addStrip':
+        return commit(() => resize(stripsOf(ctx), stripsOf(ctx).length + 1));
+      case 'delStrip':
+        selected = null;
+        return commit(() => stripsOf(ctx).splice(Number(ds.i), 1));
+      case 'reverse':
+        return commit(() => stripsOf(ctx).reverse());
+      case 'mirror':
+        return commit(() => {
+          const s = stripsOf(ctx);
+          const m = s.slice(0, -1).reverse().map((x) => ({ ...x }));
+          s.push(...m);
+        });
+      case 'alternate': {
+        const a = $(`[data-fill-a="${ctx}"]`).value;
+        const b = $(`[data-fill-b="${ctx}"]`).value;
+        return commit(() => stripsOf(ctx).forEach((s, i) => (s.species = i % 2 ? b : a)));
+      }
+      case 'addPanel':
+        return commit((d) => {
+          const name = String.fromCharCode(65 + d.panels.length);
+          const src = d.panels[d.panels.length - 1];
+          d.panels.push({ id: engine.uid('p'), name, thickness: src.thickness, strips: src.strips.map((s) => ({ ...s })) });
+        });
+      case 'delPanel':
+        selected = null;
+        return commit((d) => {
+          d.panels = d.panels.filter((p) => p.id !== ds.panel);
+          d.rowPlan = d.rowPlan.filter((r) => r.panel !== ds.panel);
+        });
+      case 'addRow':
+        return commit((d) => d.rowPlan.push({ ...d.rowPlan[d.rowPlan.length - 1] }));
+      case 'delRow':
+        return commit((d) => d.rowPlan.splice(Number(ds.i), 1));
+      case 'flipAlt':
+        return commit((d) => d.rowPlan.forEach((r, i) => (r.flip = i % 2 === 1)));
+      case 'rowText': {
+        const text = $('[data-row-text]').value.replace(/[\s,]/g, '').toUpperCase();
+        const byName = Object.fromEntries(design.panels.map((p) => [p.name.toUpperCase(), p.id]));
+        const plan = [...text].map((ch) => byName[ch]);
+        if (!plan.length || plan.some((x) => !x)) return toast(`Use panel names: ${design.panels.map((p) => p.name).join(', ')}.`);
+        return commit((d) => (d.rowPlan = plan.map((panel, i) => ({ panel, flip: d.rowPlan[i] ? d.rowPlan[i].flip : false }))));
+      }
+      case 'saveDefaults':
+        prefs.defaults = { ...design.settings };
+        storage.savePrefs(prefs);
+        return toast('New boards will start with these settings.');
+      case 'resetDefaults':
+        prefs.defaults = null;
+        storage.savePrefs(prefs);
+        return commit((d) => (d.settings = { ...engine.DEFAULT_SETTINGS }));
+      case 'closePicker':
+        selected = null;
+        return update();
+      case 'species':
+        return openSpecies();
+      case 'sheet':
+        return openSheet();
+    }
+  }
+
+  // ---------- dialogs ----------
+  function dialog(title, bodyHtml, buttons, onOpen) {
+    const dlg = $('#dialog');
+    $('#dialogTitle').textContent = title;
+    $('#dialogBody').innerHTML = bodyHtml;
+    $('#dialogButtons').innerHTML = buttons
+      .map((b) => `<button value="${b.value}" class="${b.cls || ''}">${esc(b.label)}</button>`)
+      .join('');
+    return new Promise((resolve) => {
+      dlg.onclose = () => resolve(dlg.returnValue);
+      dlg.returnValue = '';
+      dlg.showModal();
+      if (onOpen) onOpen(dlg);
+    });
+  }
+  function toast(msg) {
+    const t = $('#toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => t.classList.remove('show'), 2600);
+  }
+  async function confirmDialog(title, text, ok = 'OK') {
+    return (await dialog(title, `<p>${esc(text)}</p>`, [{ label: 'Cancel', value: 'cancel', cls: 'ghost' }, { label: ok, value: 'ok', cls: 'primary' }])) === 'ok';
+  }
+
+  function save() {
+    if (storage.saveDesign(design)) {
+      lastSaved = snapshot();
+      toast(`Saved “${design.name}” in this browser.`);
+    } else toast('Couldn’t save. The browser’s storage may be full or blocked.');
+    update();
+  }
+
+  async function guardUnsaved() {
+    if (lastSaved === snapshot() || pristine === snapshot()) return true;
+    return confirmDialog('Leave this board?', `“${design.name}” has changes that aren’t saved. Its latest state is still kept until you open another board.`, 'Continue without saving');
+  }
+
+  function load(d) {
+    design = d;
+    undo = [];
+    redo = [];
+    selected = null;
+    lastSaved = savedSnapshotFor(design);
+    update();
+  }
+
+  async function openSaved() {
+    const list = storage.listDesigns();
+    if (!list.length) return toast('No saved boards yet. Use Save to keep one.');
+    const render = () =>
+      storage
+        .listDesigns()
+        .map(
+          (x) => `<div class="item"><div><b>${esc(x.name)}</b><small>${esc(engine.PATTERNS[x.pattern] ? engine.PATTERNS[x.pattern].label : '')} · ${x.savedAt ? new Date(x.savedAt).toLocaleString() : ''}</small></div>
+          <button type="button" class="small primary" data-open="${x.id}">Open</button>
+          <button type="button" class="small danger" data-del="${x.id}">Delete</button></div>`
+        )
+        .join('') || '<p class="muted">No saved boards.</p>';
+    let chosen = null;
+    await dialog('Saved boards', `<div class="saved-list">${render()}</div>`, [{ label: 'Close', value: 'close', cls: 'ghost' }], (dlg) => {
+      $('.saved-list', dlg).onclick = async (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        if (b.dataset.open) {
+          chosen = b.dataset.open;
+          dlg.close('open');
+        } else if (b.dataset.del) {
+          const item = storage.listDesigns().find((x) => x.id === b.dataset.del);
+          if (window.confirm(`Delete “${item.name}”? This can’t be undone.`)) {
+            storage.deleteDesign(b.dataset.del);
+            $('.saved-list', dlg).innerHTML = render();
+            if (b.dataset.del === design.id) lastSaved = null;
+            update();
+          }
+        }
+      };
+    });
+    if (chosen && chosen !== design.id) {
+      if (!(await guardUnsaved())) return;
+      load(storage.loadDesign(chosen));
+    }
+  }
+
+  async function openSpecies() {
+    let work = speciesList.map((s) => ({ ...s }));
+    const used = new Set(result.panels.flatMap((p) => p.strips.map((s) => s.species)));
+    const row = (s) => `<tr data-id="${s.id}">
+      <td><input type="color" data-f="color" value="${s.color}" aria-label="Colour"/></td>
+      <td><input class="plain" data-f="name" value="${esc(s.name)}" style="width:140px" aria-label="Name"/></td>
+      <td><div class="inp" style="width:96px"><span style="padding:0 0 0 7px">$</span><input type="number" step="0.01" min="0" data-f="price" value="${s.price ?? ''}" placeholder="0.00" aria-label="Price per board foot"/></div></td>
+      <td><input class="plain" data-f="supplier" value="${esc(s.supplier)}" style="width:170px" placeholder="Where you bought it" aria-label="Last purchased from"/></td>
+      <td><input class="plain" type="date" data-f="lastBought" value="${esc(s.lastBought)}" aria-label="Last purchase date"/></td>
+      <td><input class="plain" data-f="notes" value="${esc(s.notes)}" style="width:140px" aria-label="Notes"/></td>
+      <td><button type="button" class="x" data-del title="${used.has(s.id) ? 'Used in this board' : 'Delete'}"${used.has(s.id) ? ' disabled' : ''}>✕</button></td></tr>`;
+    const body = () => `<div class="species-wrap"><table class="species-table"><thead><tr><th></th><th>Species</th><th>$ / bf</th><th>Last purchased from</th><th>Date</th><th>Notes</th><th></th></tr></thead>
+      <tbody>${work.map(row).join('')}</tbody></table></div>
+      <div class="row-actions"><button type="button" class="small" data-add>+ Add species</button></div>`;
+    const res = await dialog('Species library', body(), [{ label: 'Cancel', value: 'cancel', cls: 'ghost' }, { label: 'Save', value: 'save', cls: 'primary' }], (dlg) => {
+      const wrap = $('#dialogBody', dlg);
+      wrap.oninput = (e) => {
+        const tr = e.target.closest('tr');
+        if (!tr) return;
+        const s = work.find((x) => x.id === tr.dataset.id);
+        const f = e.target.dataset.f;
+        if (f === 'price') s.price = e.target.value === '' ? null : Number(e.target.value);
+        else s[f] = e.target.value;
+      };
+      wrap.onclick = (e) => {
+        if (e.target.closest('[data-add]')) {
+          work.push(CB.species.newSpecies());
+          wrap.innerHTML = body();
+          const inputs = $$('input[data-f="name"]', wrap);
+          inputs[inputs.length - 1].select();
+        } else if (e.target.closest('[data-del]')) {
+          const id = e.target.closest('tr').dataset.id;
+          work = work.filter((x) => x.id !== id);
+          wrap.innerHTML = body();
+        }
+      };
+    });
+    if (res === 'save') {
+      speciesList = CB.species.normalize(work);
+      storage.saveSpecies(speciesList);
+      update();
+      toast('Species saved.');
+    }
+  }
+
+  function openSheet() {
+    $('#sheetBody').innerHTML = sheet.html(design, result, speciesList, prefs);
+    $('#sheetView').hidden = false;
+    $('#sheetView').scrollTop = 0;
+  }
+
+  async function fileAction(kind) {
+    $('#fileMenu').hidden = true;
+    if (kind === 'new') {
+      if (!(await guardUnsaved())) return;
+      load(freshDesign('Untitled board'));
+      pristine = snapshot();
+    } else if (kind === 'open') openSaved();
+    else if (kind === 'duplicate') {
+      design = engine.normalizeDesign({ ...JSON.parse(JSON.stringify(design)), id: engine.uid('bd'), name: `${design.name} copy` });
+      storage.saveDesign(design);
+      lastSaved = snapshot();
+      update();
+      toast('Saved a copy. You’re now editing the copy.');
+    } else if (kind === 'exportDesign') {
+      storage.download(`${slug(design.name)}.board.json`, JSON.stringify(storage.backup(design), null, 2));
+    } else if (kind === 'exportAll') {
+      storage.download(`cutting-boards-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(storage.backup(), null, 2));
+    } else if (kind === 'import') $('#fileInput').click();
+  }
+  const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'board';
+
+  async function importFile(file) {
+    try {
+      const data = JSON.parse(await file.text());
+      const res = storage.restore(data);
+      speciesList = storage.loadSpecies();
+      prefs = storage.loadPrefs();
+      if (res.designs.length === 1) {
+        if (await guardUnsaved()) load(res.designs[0]);
+      } else update();
+      toast(`Loaded ${res.designs.length} board${res.designs.length === 1 ? '' : 's'} and ${res.species} species.`);
+    } catch (e) {
+      toast(e.message && e.message.includes('Cutting Board') ? e.message : 'That file couldn’t be read.');
+    }
+  }
+
+  // ---------- wire up ----------
+  const preview = new CB.Preview($('#preview'), {
+    onPick: (b) => {
+      selected = b ? b.ref : null;
+      update();
+    },
+  });
+
+  $('#leftPanel').addEventListener('change', onChange);
+  $('#leftPanel').addEventListener('click', onClick);
+  $('#leftPanel').addEventListener('toggle', (e) => {
+    if (e.target.matches('[data-allow]')) {
+      prefs.allowOpen = e.target.open;
+      storage.savePrefs(prefs);
+    }
+  }, true);
+  $('#leftPanel').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.matches('input[data-row-text]')) $('[data-act="rowText"]').click();
+  });
+  $('#rightPanel').addEventListener('click', onClick);
+  $('#picker').addEventListener('change', onChange);
+  $('#picker').addEventListener('click', onClick);
+
+  $('#designName').addEventListener('change', (e) => commit((d) => (d.name = e.target.value.trim() || 'Untitled board')));
+  $('#btnUndo').onclick = doUndo;
+  $('#btnRedo').onclick = doRedo;
+  $('#btnSave').onclick = save;
+  $('#btnSpecies').onclick = openSpecies;
+  $('#btnSheet').onclick = openSheet;
+  $('#btnPrint').onclick = () => window.print();
+  $('#btnCloseSheet').onclick = () => ($('#sheetView').hidden = true);
+  $$('.units button').forEach(
+    (b) =>
+      (b.onclick = () => {
+        prefs.units = b.dataset.units;
+        storage.savePrefs(prefs);
+        update();
+      })
+  );
+  $$('.views button').forEach((b) => {
+    b.onclick = () => {
+      preview.setView(b.dataset.view);
+      $$('.views button').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+    };
+  });
+  $('.views button[data-view="angle"]').setAttribute('aria-checked', 'true');
+  $('#btnFile').onclick = (e) => {
+    e.stopPropagation();
+    $('#fileMenu').hidden = !$('#fileMenu').hidden;
+  };
+  $('#fileMenu').onclick = (e) => {
+    const b = e.target.closest('[data-file]');
+    if (b) fileAction(b.dataset.file);
+  };
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.menu-wrap')) $('#fileMenu').hidden = true;
+  });
+  $('#fileInput').onchange = (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (f) importFile(f);
+  };
+  document.addEventListener('keydown', (e) => {
+    const mod = e.ctrlKey || e.metaKey;
+    const typing = e.target.matches('input, select, textarea');
+    if (mod && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      if (document.activeElement) document.activeElement.blur();
+      save();
+    } else if (mod && !typing && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      e.shiftKey ? doRedo() : doUndo();
+    } else if (mod && !typing && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      doRedo();
+    } else if (e.key === 'Escape') {
+      if (!$('#sheetView').hidden) $('#sheetView').hidden = true;
+      else if (selected) {
+        selected = null;
+        update();
+      }
+    }
+  });
+  window.addEventListener('beforeprint', () => {
+    if ($('#sheetView').hidden) openSheet();
+  });
+
+  update();
+})();

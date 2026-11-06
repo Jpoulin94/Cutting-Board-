@@ -1,0 +1,9 @@
+{
+  "name": "cutting-board-designer",
+  "private": true,
+  "description": "End grain cutting board designer: patterns, 3D preview, strip and cut lists with kerf",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "npx http-server -c-1 -p 8080 ."
+  }
+}
