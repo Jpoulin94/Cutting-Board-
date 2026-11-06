@@ -543,8 +543,12 @@
           chosen = b.dataset.open;
           dlg.close('open');
         } else if (b.dataset.del) {
-          const item = storage.listDesigns().find((x) => x.id === b.dataset.del);
-          if (window.confirm(`Delete “${item.name}”? This can’t be undone.`)) {
+          if (b.dataset.armed !== '1') {
+            b.dataset.armed = '1';
+            b.textContent = 'Tap again to delete';
+            return;
+          }
+          {
             storage.deleteDesign(b.dataset.del);
             $('.saved-list', dlg).innerHTML = render();
             if (b.dataset.del === design.id) lastSaved = null;
@@ -732,6 +736,12 @@
   window.addEventListener('beforeprint', () => {
     if ($('#sheetView').hidden) openSheet();
   });
+
+  if (window.CB_PREVIEW) {
+    $('#btnPrint').hidden = true;
+    $('.sheet-bar .muted').textContent = 'Printing and PDF work in the downloaded app.';
+    $$('[data-file="exportDesign"], [data-file="exportAll"]').forEach((b) => (b.hidden = true));
+  }
 
   update();
 })();
