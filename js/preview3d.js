@@ -113,7 +113,7 @@
         } else {
           moved += Math.abs(dx) + Math.abs(dy);
           if (moved < 4) return;
-          this.view.yaw += dx * 0.008;
+          this.view.yaw -= dx * 0.008; // the edge under your finger follows it
           this.view.pitch = Math.min(90 * DEG, Math.max(8 * DEG, this.view.pitch + dy * 0.008));
         }
         this.fast = true;
