@@ -127,6 +127,7 @@
   }
   function refStrip(ref) {
     if (!ref) return null;
+    if (ref.tile != null) return engine.isTile(design.pattern) ? design.tile.woods[ref.tile] || null : null;
     if (ref.strip != null) return design.strips[ref.strip] || null;
     const p = design.panels.find((x) => x.id === ref.panel);
     return p ? p.strips[ref.index] || null : null;
@@ -179,6 +180,31 @@
 
   // ---------- left panel ----------
   function patternIcon(p) {
+    if (engine.isTile(p)) {
+      const sq3 = Math.sqrt(3);
+      const sz = 6;
+      const f = sz * sq3;
+      let out = '';
+      for (let r = -1; r < 5; r++)
+        for (let c = -1; c < 5; c++) {
+          const cx = c * f + (r % 2 ? f / 2 : 0);
+          const cy = r * sz * 1.5;
+          const H = [0, 1, 2, 3, 4, 5].map((k) => {
+            const a = ((-90 + 60 * k) * Math.PI) / 180;
+            return [cx + sz * Math.cos(a), cy + sz * Math.sin(a)];
+          });
+          const pts = (list) => list.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+          if (p === 'cubes') {
+            const C = [cx, cy];
+            out += `<polygon points="${pts([C, H[5], H[0], H[1]])}" fill="#ead9b8"/><polygon points="${pts([C, H[3], H[4], H[5]])}" fill="#4b3428"/><polygon points="${pts([C, H[1], H[2], H[3]])}" fill="#a8603c"/>`;
+          } else {
+            const q = c - Math.floor(r / 2);
+            const fill = ['#ead9b8', '#4b3428', '#a8603c'][(((q - r) % 3) + 3) % 3];
+            out += `<polygon points="${pts(H)}" fill="${fill}" stroke="#00000033" stroke-width="0.4"/>`;
+          }
+        }
+      return `<svg viewBox="0 0 42 28" aria-hidden="true"><clipPath id="c${p}"><rect width="42" height="28"/></clipPath><g clip-path="url(#c${p})">${out}</g></svg>`;
+    }
     const c = ['#ead9b8', '#4b3428'];
     let cells = '';
     for (let r = 0; r < 4; r++)
@@ -218,9 +244,17 @@
         .join('')}</div>
       <p class="blurb">${esc(engine.PATTERNS[d.pattern].blurb)}</p></section>`;
 
-    html += `<section class="section"><h2>Board <button class="small" data-act="fit">Fit to a size</button></h2>
+    const tile = engine.isTile(d.pattern);
+    html += `<section class="section"><h2>Board ${tile ? '' : '<button class="small" data-act="fit">Fit to a size</button>'}</h2>
       ${field('Thickness', lenInput('thickness', d.thickness), 'Finished, after flattening')}`;
-    if (!plaid) {
+    if (tile) {
+      const T = d.tile;
+      const cubes = d.pattern === 'cubes';
+      html += `${field('Width', lenInput('tile:width', T.width), 'Finished, after trimming')}
+        ${field('Length', lenInput('tile:length', T.length))}
+        ${field(cubes ? 'Diamond side' : 'Hexagon side', lenInput('tile:size', T.size), cubes ? 'Also the size of each cube' : `Across the flats: ${fmt(T.size * Math.sqrt(3))}`)}
+        ${field('Boards from one log', numInput('tile:boards', T.boards, { max: 20 }), 'Slices cut from the glued log')}`;
+    } else if (!plaid) {
       html += `${field('Strips', numInput('stripCount', d.strips.length, { max: 60 }), 'Columns across the width')}
         ${field('Strip width', lenInput('stripWidthAll', uniform ? widths[0] : NaN, { placeholder: 'mixed' }), 'Sets every strip')}
         ${field('Rows', numInput('rows', d.rows, { max: 80 }), 'Slices along the length')}
@@ -248,7 +282,20 @@
     );
     html += `<div class="readout">Finished board: <b>${fmt(result.board.width)} × ${fmt(result.board.length)} × ${fmt(result.board.thickness)}</b></div></section>`;
 
-    if (!plaid) {
+    if (tile) {
+      const T = d.tile;
+      const cubes = d.pattern === 'cubes';
+      const n = cubes ? 3 : T.arrange === 'three' ? 3 : T.arrange === 'rows' ? 2 : 1;
+      const names = cubes ? ['Top faces', 'Left faces', 'Right faces'] : ['Wood 1', 'Wood 2', 'Wood 3'];
+      html += `<section class="section"><h2>Woods</h2>
+        ${cubes ? '' : field('Arrangement', `<div class="inp"><select data-tile-arrange>
+          <option value="three"${T.arrange === 'three' ? ' selected' : ''}>Three woods, no two alike touching</option>
+          <option value="rows"${T.arrange === 'rows' ? ' selected' : ''}>Two woods, alternating rows</option>
+          <option value="single"${T.arrange === 'single' ? ' selected' : ''}>One wood</option></select></div>`)}
+        ${T.woods.slice(0, n).map((w, i) => field(names[i], speciesSelect(`tile:${i}`, w.species))).join('')}
+        <p class="blurb">${cubes ? 'Light on top and darker on the sides makes the cubes pop. Tap a piece in the preview to change its wood.' : 'Tap a hexagon in the preview to change that wood everywhere.'}</p>
+      </section>`;
+    } else if (!plaid) {
       html += `<section class="section"><h2>Strips <span class="muted">left to right</span></h2>${stripsHtml('main', d.strips)}</section>`;
     } else {
       html += `<section class="section"><h2>Panels <button class="small" data-act="addPanel">+ Panel</button></h2>
@@ -284,7 +331,7 @@
     const A = d.accent;
     const usedSp = [...new Set((plaid ? d.panels.flatMap((p) => p.strips) : d.strips).map((x) => x.species))];
     const spOpt = (v, list) => list.map((id) => `<option value="${id}"${id === v ? ' selected' : ''}>${esc(CB.species.byId(speciesList, id).name)}</option>`).join('');
-    html += `<section class="section"><h2>Angled accent</h2>
+    if (!tile) html += `<section class="section"><h2>Angled accent</h2>
       <label class="check"><input type="checkbox" data-acc="enabled"${A.enabled ? ' checked' : ''}/> Glue a thin accent line across each square</label>
       ${
         A.enabled
@@ -346,7 +393,44 @@
   }
 
   // ---------- right panel ----------
+  function renderTileRight() {
+    const r = result;
+    const t = r.tiles;
+    const money = sheet.money;
+    const lumberRows = r.lumber
+      .map(
+        (l) => `<tr><td><i class="sw" style="background:${l.color}"></i>${esc(l.name)}</td>
+        <td>${l.pieces.map((p) => `${fmt(p.thickness)} <span class="muted">(${p.rough.laminate ? `${p.rough.layers}×8/4` : `${p.rough.quarters}/4`})</span><br><span class="muted">${fmt(p.width)} × ${fmt(p.length)}</span>`).join('<br>')}</td>
+        <td class="r">${l.bfBuy.toFixed(2)}</td><td class="r">${money(l.cost)}</td></tr>`
+      )
+      .join('');
+    const cubes = t.kind === 'cubes';
+    $('#rightPanel').innerHTML = `
+      <section class="section"><h2>Finished board</h2>
+        <div class="big">${fmt(r.board.width)} × ${fmt(r.board.length)} × ${fmt(r.board.thickness)}</div>
+        <div class="stats" style="margin-top:10px">
+          <div class="stat"><small>${cubes ? 'Diamond' : 'Hexagon'} sticks</small><b>${t.sticks}</b></div>
+          <div class="stat"><small>Angled rips</small><b>${r.total.angleRips}</b></div>
+          <div class="stat"><small>Lumber to buy</small><b>${r.total.bfBuy.toFixed(2)} bf</b></div>
+          <div class="stat"><small>Cost</small><b>${money(r.total.cost)}</b>${r.total.unpriced.length ? '<small>some prices missing</small>' : ''}</div>
+        </div>
+        ${r.warnings.map((w) => `<p class="warn">${esc(w)}</p>`).join('')}
+      </section>
+      <section class="section"><h2>Lumber needed</h2>
+        <table class="t"><thead><tr><th>Species</th><th>Milled thickness, width × length</th><th class="r">bf</th><th class="r">Cost</th></tr></thead>
+        <tbody>${lumberRows}</tbody>
+        <tfoot><tr><td colspan="2">Total (+${r.settings.waste}% waste)</td><td class="r">${r.total.bfBuy.toFixed(2)}</td><td class="r">${money(r.total.cost)}</td></tr></tfoot></table>
+        ${r.total.unpriced.length ? `<p class="warn">No price yet for ${esc(r.total.unpriced.join(', '))}. <button class="small" data-act="species">Add prices</button></p>` : ''}
+      </section>
+      <section class="section"><h2>The sticks</h2>
+        <div class="diagram-wrap">${sheet.stickSvg(t, CB.species.byId(speciesList, t.woods[0]).color, fmt, 120)}</div>
+        <p class="method">${esc(r.method)} Each short stick is <b>${fmt(t.stickLength)}</b> long, cut ${t.perRip} at a time from ${fmt(t.ripLength)} rips.</p>
+        <p class="row-actions" style="margin-top:12px"><button class="primary" data-act="plan">Build steps</button><button data-act="sheet">Shop sheet</button></p>
+      </section>`;
+  }
+
   function renderRight() {
+    if (result.tiles) return renderTileRight();
     const r = result;
     const S = r.settings;
     const used = [...new Set(r.panels.flatMap((p) => p.strips.map((s) => s.species)))];
@@ -403,6 +487,18 @@
       return;
     }
     const ref = selected;
+    if (ref.tile != null) {
+      const count = result.blocks.filter((b) => CB.preview.sameRef(b.ref, ref)).length;
+      const cubes = design.pattern === 'cubes';
+      el.hidden = false;
+      el.innerHTML = `<h4>${cubes ? ['Top faces', 'Left faces', 'Right faces'][ref.tile] : `Wood ${ref.tile + 1}`}</h4>
+        <p>${count} pieces on the board use this wood. Pick a species to change them all.</p>
+        <div class="swatches">${speciesList
+          .map((sp) => `<button data-pick="${sp.id}" aria-pressed="${sp.id === s.species}"><i class="sw" style="background:${sp.color}"></i>${esc(sp.name)}</button>`)
+          .join('')}</div>
+        <div class="row-actions"><button class="small" data-act="closePicker">Done</button></div>`;
+      return;
+    }
     const panel = ref.strip == null ? design.panels.find((p) => p.id === ref.panel) : null;
     const index = ref.strip != null ? ref.strip : ref.index;
     const count = result.blocks.filter((b) => CB.preview.sameRef(b.ref, ref)).length;
@@ -445,6 +541,7 @@
         } else if (key === 'pickW') refStrip(selected).width = v;
         else if (key === 'acc:thickness') d.accent.thickness = v;
         else if (key.startsWith('det:')) d.details[key.slice(4)] = v;
+        else if (key.startsWith('tile:')) d.tile[key.slice(5)] = v;
       });
       return;
     }
@@ -457,11 +554,14 @@
         else if (ds.num === 'set:waste') d.settings.waste = Math.max(0, Math.min(100, n));
         else if (ds.num === 'acc:angle') d.accent.angle = n;
         else if (ds.num === 'acc:offset') d.accent.offset = n / 100;
+        else if (ds.num === 'tile:boards') d.tile.boards = Math.max(1, Math.min(20, Math.round(n)));
       });
       return;
     }
+    if (ds.tileArrange !== undefined) return commit((d) => (d.tile.arrange = t.value));
     if (ds.sp !== undefined) {
       const [ctx, i] = ds.sp.split(':');
+      if (ctx === 'tile') return commit((d) => (d.tile.woods[Number(i)].species = t.value));
       commit(() => (stripsOf(ctx)[Number(i)].species = t.value));
       return;
     }
@@ -692,20 +792,54 @@
 
   async function openStock() {
     const settings = { ...engine.DEFAULT_SETTINGS, ...(prefs.defaults || {}) };
-    const cards = CB.presets.PRESETS.map((p, i) => {
-      const d = CB.presets.make(p, settings);
-      const r = engine.compute(d, speciesList);
-      const code = sheet.codes(speciesList, []);
-      return `<button type="button" class="stock-card" data-stock="${i}">
-        ${sheet.boardSvg(r, speciesList, code, 150).replace(/<text[^>]*>[^<]*<\/text>/g, '')}
-        <b>${esc(p.name)}</b>
-        <small>${fmt(r.board.width)} × ${fmt(r.board.length)} · ${esc(engine.PATTERNS[d.pattern].label)}</small>
-        <span>${esc(p.blurb)}</span>
-      </button>`;
-    }).join('');
+    const svgs = {};
+    const card = (p, i, hidden) => {
+      if (!svgs[i]) {
+        const d = CB.presets.make(p, settings);
+        const r = engine.compute(d, speciesList);
+        svgs[i] = { svg: sheet.boardSvg(r, speciesList, sheet.codes(speciesList, []), 150).replace(/<text[^>]*>[^<]*<\/text>/g, ''), size: `${fmt(r.board.width)} × ${fmt(r.board.length)} · ${esc(engine.PATTERNS[d.pattern].label)}` };
+      }
+      return `<div class="stock-item${hidden ? ' is-hidden' : ''}">
+        <button type="button" class="stock-card" data-stock="${i}">
+          ${svgs[i].svg}
+          <b>${esc(p.name)}</b>
+          <small>${svgs[i].size}</small>
+          <span>${esc(p.blurb)}</span>
+        </button>
+        <button type="button" class="stock-hide small ghost" data-stock-hide="${i}">${hidden ? 'Bring back' : 'Hide'}</button>
+      </div>`;
+    };
+    let showHidden = false;
+    const hiddenSet = () => new Set(prefs.hiddenStock || []);
+    const render = () => {
+      const hid = hiddenSet();
+      const list = CB.presets.PRESETS.map((p, i) => [p, i]);
+      const shown = list.filter(([p]) => !hid.has(p.name));
+      const gone = list.filter(([p]) => hid.has(p.name));
+      return `<div class="stock-grid">${shown.map(([p, i]) => card(p, i, false)).join('')}</div>
+        ${gone.length ? `<p class="row-actions" style="margin-top:14px"><button type="button" class="small" data-stock-toggle>${showHidden ? 'Hide the hidden designs' : `Show ${gone.length} hidden design${gone.length > 1 ? 's' : ''}`}</button></p>` : ''}
+        ${showHidden && gone.length ? `<div class="stock-grid">${gone.map(([p, i]) => card(p, i, true)).join('')}</div>` : ''}`;
+    };
     let chosen = null;
-    await dialog('Stock designs', `<p class="muted" style="margin:0 0 12px">Pick one to start a new board. Your kerf and allowance settings carry over, and you can change anything after.</p><div class="stock-grid">${cards}</div>`, [{ label: 'Close', value: 'close', cls: 'ghost' }], (dlg) => {
-      $('.stock-grid', dlg).onclick = (e) => {
+    await dialog('Stock designs', `<p class="muted" style="margin:0 0 12px">Pick one to start a new board. Your kerf and allowance settings carry over, and you can change anything after. Hide the ones you don't want.</p><div class="stock-wrap">${render()}</div>`, [{ label: 'Close', value: 'close', cls: 'ghost' }], (dlg) => {
+      const wrap = $('.stock-wrap', dlg);
+      wrap.onclick = (e) => {
+        const hideBtn = e.target.closest('[data-stock-hide]');
+        if (hideBtn) {
+          const name = CB.presets.PRESETS[Number(hideBtn.dataset.stockHide)].name;
+          const hid = hiddenSet();
+          if (hid.has(name)) hid.delete(name);
+          else hid.add(name);
+          prefs.hiddenStock = [...hid];
+          storage.savePrefs(prefs);
+          wrap.innerHTML = render();
+          return;
+        }
+        if (e.target.closest('[data-stock-toggle]')) {
+          showHidden = !showHidden;
+          wrap.innerHTML = render();
+          return;
+        }
         const b = e.target.closest('[data-stock]');
         if (!b) return;
         chosen = CB.presets.PRESETS[Number(b.dataset.stock)];
@@ -715,7 +849,7 @@
     if (!chosen) return;
     if (!(await guardUnsaved())) return;
     const made = CB.presets.make(chosen, settings);
-    const needed = [...new Set([...made.strips, ...made.panels.flatMap((p) => p.strips)].map((x) => x.species).concat(made.accent.enabled ? [made.accent.species] : []))];
+    const needed = [...new Set([...made.strips, ...made.panels.flatMap((p) => p.strips), ...made.tile.woods].map((x) => x.species).concat(made.accent.enabled ? [made.accent.species] : []))];
     const missing = CB.species.defaults().filter((x) => needed.includes(x.id) && !speciesList.some((y) => y.id === x.id));
     if (missing.length) {
       speciesList = speciesList.concat(missing);

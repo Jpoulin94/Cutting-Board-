@@ -3,7 +3,97 @@
   'use strict';
   const CB = (root.CB = root.CB || {});
 
+  function tileSteps(design, r, speciesList, prefs) {
+    const { esc } = CB.sheet;
+    const fmt = (mm) => CB.units.format(mm, prefs);
+    const S = r.settings;
+    const t = r.tiles;
+    const cubes = t.kind === 'cubes';
+    const sp = (id) => CB.species.byId(speciesList, id);
+    const sw = (id) => `<i class="sw" style="background:${sp(id).color}"></i>`;
+    const out = [];
+    const add = (key, title, lead, body) => out.push({ key, title, lead, body });
+    const faceNames = ['top', 'left', 'right'];
+
+    add(
+      'mill',
+      'Mill your lumber',
+      `Plane every board to ${fmt(t.shape.thickness)} thick.`,
+      `<table class="t"><thead><tr><th>Wood</th><th>Thickness</th><th>Width</th><th>Length</th><th>Rough stock</th></tr></thead><tbody>${r.lumber
+        .map((l) => {
+          const p = l.pieces[0];
+          return `<tr><td>${sw(l.species)}${esc(l.name)}</td><td>${fmt(p.thickness)}</td><td>${fmt(p.width)}</td><td>${fmt(p.length)}</td><td class="muted">${p.rough.laminate ? `${p.rough.layers} × 8/4 glued up` : `${p.rough.quarters}/4`}</td></tr>`;
+        })
+        .join('')}</tbody></table>
+      <p class="note">Plane them all in one session so every stick comes out the same thickness. The thickness is ${cubes ? 'the height of a diamond' : 'the hexagon across its flats'}.</p>`
+    );
+
+    add(
+      'sticks',
+      cubes ? 'Rip the diamond sticks' : 'Make the hexagon sticks',
+      cubes
+        ? `Tilt the blade 30\u00b0. Rip a starting bevel, then rip diamonds ${fmt(t.size)} along the face.`
+        : `Rip blanks ${fmt(t.shape.width)} wide, then tilt the blade 30\u00b0 and bevel all four corners.`,
+      `${CB.sheet.stickSvg(t, sp(t.woods[0]).color, fmt)}
+      <table class="t"><thead><tr><th>Wood</th><th>Long sticks</th><th>Length</th>${cubes ? '<th>Used for</th>' : ''}</tr></thead><tbody>${r.lumber
+        .map((l) => `<tr><td>${sw(l.species)}${esc(l.name)}</td><td>${l.long}</td><td>${fmt(t.ripLength)}</td>${cubes ? `<td>${t.woods.map((w, i) => (w === l.species ? faceNames[i] : null)).filter(Boolean).join(', ')} faces</td>` : ''}</tr>`)
+        .join('')}</tbody></table>
+      <p class="note">${cubes ? `At this angle each rip uses ${fmt(t.kerfAngle)} of width. Every side should measure ${fmt(t.size)}.` : `Every side should measure ${fmt(t.size)}. Make a test stick first and check it against the others.`} Use a push block; these are small parts.</p>`
+    );
+
+    add(
+      'cut',
+      'Cut the sticks to length',
+      `Cut ${t.sticks} short sticks ${fmt(t.stickLength)} long, ${t.perRip} from each long one.`,
+      `<table class="t"><thead><tr><th>Wood</th><th>Short sticks</th></tr></thead><tbody>${r.lumber
+        .map((l) => `<tr><td>${sw(l.species)}${esc(l.name)}</td><td>${l.sticks}</td></tr>`)
+        .join('')}</tbody></table>
+      <p class="note">Use a stop block so they all match. ${fmt(t.stickLength)} makes ${t.boards} board${t.boards > 1 ? 's' : ''} ${fmt(r.board.thickness)} thick, with ${fmt(S.flatten)} to flatten and ${fmt(S.endTrim)} to square up.</p>`
+    );
+
+    add(
+      'log',
+      'Glue up the log',
+      cubes ? 'Glue the diamonds end grain up, one row at a time, so each hexagon has one of each wood.' : 'Glue the hexagons end grain up, one row at a time, nesting each row into the one before.',
+      `<ul class="checks">
+        ${cubes ? t.woods.map((w, i) => `<li>${sw(w)}${esc(sp(w).name)} on the ${faceNames[i]} of every cube.</li>`).join('') : ''}
+        <li>The log is about ${fmt(t.logWidth)} × ${fmt(t.logLength)}: ${fmt(S.edgeTrim)} bigger all round than the board, for trimming.</li>
+        <li>Glue a few rows at a time and let them set. Painter's tape or band clamps hold the rows tight.</li>
+        ${r.grain === 'matched' ? '<li>Keep the same face of every stick pointing the same way so the grain matches.</li>' : ''}
+      </ul>`
+    );
+
+    add(
+      'slice',
+      t.boards > 1 ? `Slice ${t.boards} boards from the log` : 'Square the log',
+      t.boards > 1 ? `Square one end, then cut slices ${fmt(t.sliceLength)} long.` : `Square both ends so the log is ${fmt(t.sliceLength)} long.`,
+      `<p class="note">That's your ${fmt(r.board.thickness)} board plus ${fmt(S.flatten)} to flatten. A crosscut sled keeps the slices square.</p>`
+    );
+
+    add(
+      'trim',
+      'Trim the edges and flatten',
+      `Trim the ragged edges to ${fmt(r.board.width)} × ${fmt(r.board.length)}, then flatten both faces.`,
+      `<ul class="checks">
+        <li>Flatten with a router sled or drum sander to <b>${fmt(r.board.thickness)}</b> thick.</li>
+        <li>Never run end grain through a thickness planer.</li>
+      </ul>`
+    );
+
+    add(
+      'finish',
+      'Sand and finish',
+      `Finished board: ${fmt(r.board.width)} × ${fmt(r.board.length)} × ${fmt(r.board.thickness)}.`,
+      `<ul class="checks">
+        <li>Sand through the grits, wiping between grits to raise and knock down the grain.</li>
+        <li>Flood the end grain with a food-safe oil, let it soak in, wipe off the excess, then add a board butter.</li>
+      </ul>`
+    );
+    return out;
+  }
+
   function steps(design, r, speciesList, prefs) {
+    if (r.tiles) return tileSteps(design, r, speciesList, prefs);
     const { esc, turnNote } = CB.sheet;
     const fmt = (mm) => CB.units.format(mm, prefs);
     const S = r.settings;

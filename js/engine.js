@@ -18,6 +18,20 @@
     checker: { label: 'Checkerboard', blurb: 'Every other row flipped end for end, so the colours alternate.' },
     brick: { label: 'Brick / offset', blurb: 'Every other row shifted sideways; the ragged edges are trimmed off.' },
     plaid: { label: 'Plaid / custom grid', blurb: 'Two or more panels milled to different thicknesses, stacked in any order.' },
+    honeycomb: { label: 'Honeycomb', blurb: 'Six-sided sticks, beveled at 30\u00b0 and glued into a log, then sliced.', tile: true },
+    cubes: { label: '3D cubes', blurb: 'Diamond sticks in three woods glued into a log, so each hexagon reads as a cube.', tile: true },
+  };
+  const isTile = (pattern) => !!(PATTERNS[pattern] && PATTERNS[pattern].tile);
+
+  // Honeycomb and 3D cube designs: a sheet of angled sticks, sized by the
+  // board you want rather than strip by strip.
+  const DEFAULT_TILE = {
+    width: 12 * IN,
+    length: 16 * IN,
+    size: IN, // side of each hexagon or diamond
+    woods: [{ species: 'sp_maple' }, { species: 'sp_walnut' }, { species: 'sp_cherry' }],
+    arrange: 'three', // honeycomb: 'three' (no two neighbours alike), 'rows', 'single'
+    boards: 1, // boards sliced from one log
   };
 
   const DEFAULT_SETTINGS = {
@@ -80,6 +94,7 @@
       rowPlan: ['pA', 'pB', 'pA', 'pA', 'pB', 'pA', 'pA', 'pB', 'pA'].map((panel, i) => ({ panel, flip: i % 2 === 1 })),
       accent: { ...DEFAULT_ACCENT },
       details: { ...DEFAULT_DETAILS },
+      tile: JSON.parse(JSON.stringify(DEFAULT_TILE)),
       settings: { ...DEFAULT_SETTINGS, ...settings },
     };
   }
@@ -139,6 +154,16 @@
       species: typeof a.species === 'string' && a.species ? a.species : 'contrast',
       on: typeof a.on === 'string' && a.on ? a.on : 'all',
       alternate: !!a.alternate,
+    };
+    const tl = d.tile && typeof d.tile === 'object' ? d.tile : {};
+    const woods = Array.isArray(tl.woods) ? tl.woods : [];
+    out.tile = {
+      width: pos(tl.width, DEFAULT_TILE.width),
+      length: pos(tl.length, DEFAULT_TILE.length),
+      size: Math.max(IN / 4, pos(tl.size, DEFAULT_TILE.size)),
+      woods: DEFAULT_TILE.woods.map((w, i) => ({ species: woods[i] && typeof woods[i].species === 'string' && woods[i].species ? woods[i].species : w.species })),
+      arrange: ['three', 'rows', 'single'].includes(tl.arrange) ? tl.arrange : 'three',
+      boards: Math.max(1, Math.min(20, Math.round(num(tl.boards, 1)))),
     };
     const x = d.details && typeof d.details === 'object' ? d.details : {};
     out.details = {
@@ -302,6 +327,7 @@
   }
 
   function compute(design, speciesList) {
+    if (isTile(design.pattern)) return computeTiles(design, speciesList);
     const d = design;
     const S = d.settings;
     const g = generate(d);
@@ -363,6 +389,7 @@
             // Where the whole stick sits, and how it's turned, for drawing
             // its grain the same way on every slice.
             stick: `${p.id}:${p.strips.indexOf(s)}`,
+            poly: [[x0 - start, y], [x1 - start, y], [x1 - start, y + p.thickness], [x0 - start, y + p.thickness]],
             sx: x - start,
             sw: s.width,
             rot: s.rot || 0,
@@ -525,6 +552,190 @@
     };
   }
 
+  // ---------- honeycomb and 3D cubes ----------
+  // Pointy-top hexagons of side s in rows along the width; odd rows sit
+  // half a hexagon over. A 3D cube is one hexagon split into three diamonds.
+  function computeTiles(d, speciesList) {
+    const S = d.settings;
+    const t = d.tile || DEFAULT_TILE;
+    const W = t.width;
+    const L = t.length;
+    const s = t.size;
+    const f = s * Math.sqrt(3); // across the flats
+    const E = S.edgeTrim;
+    const cubes = d.pattern === 'cubes';
+    const woods = t.woods.map((w) => w.species);
+    const sin60 = Math.sin(Math.PI / 3);
+
+    // Centre the grid on the board so the edges match.
+    const cols = Math.ceil((W + 2 * E) / f) + 2;
+    const rowsN = Math.ceil((L + 2 * E) / (1.5 * s)) + 2;
+    const ox = W / 2 - Math.floor(cols / 2) * f;
+    const oy = L / 2 - Math.floor(rowsN / 2) * 1.5 * s;
+    const r0 = Math.floor(rowsN / 2);
+    const hex = (cx, cy) => [0, 1, 2, 3, 4, 5].map((k) => {
+      const a = ((-90 + 60 * k) * Math.PI) / 180;
+      return [cx + s * Math.cos(a), cy + s * Math.sin(a)];
+    });
+    const clipRect = (poly, x0, y0, x1, y1) => clip(clip(clip(clip(poly, 1, 0, x1), -1, 0, -x0), 0, 1, y1), 0, -1, -y0);
+    const area = (poly) => Math.abs(poly.reduce((a, p, i) => { const q = poly[(i + 1) % poly.length]; return a + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
+
+    const pieces = []; // every stick in the log: { poly, wood, rot, row, col }
+    for (let r = 0; r < rowsN; r++) {
+      for (let c = -1; c < cols; c++) {
+        const cx = ox + c * f + (((r - r0) % 2 + 2) % 2 ? f / 2 : 0);
+        const cy = oy + r * 1.5 * s;
+        const H = hex(cx, cy);
+        if (cubes) {
+          // [top, left, right] faces: C,V5,V0,V1 / C,V3,V4,V5 / C,V1,V2,V3
+          const C = [cx, cy];
+          const faces = [[C, H[5], H[0], H[1]], [C, H[3], H[4], H[5]], [C, H[1], H[2], H[3]]];
+          faces.forEach((poly, k) => pieces.push({ poly, wood: k, rot: k * 120, row: r, col: c, key: `${r}:${c}:${k}` }));
+        } else {
+          let wood = 0;
+          if (t.arrange === 'three') {
+            const q = c - Math.floor((r - r0) / 2);
+            wood = ((q - (r - r0)) % 3 + 3) % 3;
+          } else if (t.arrange === 'rows') wood = ((r - r0) % 2 + 2) % 2;
+          pieces.push({ poly: H, wood, rot: 0, row: r, col: c, key: `${r}:${c}` });
+        }
+      }
+    }
+
+    // Sticks that end up in the board (after the edge trim), and the part
+    // of each that shows.
+    const blocks = [];
+    const sticks = [];
+    for (const pc of pieces) {
+      const inLog = clipRect(pc.poly, -E, -E, W + E, L + E);
+      if (inLog.length < 3 || area(inLog) < 1) continue;
+      sticks.push(pc);
+      const vis = clipRect(pc.poly, 0, 0, W, L);
+      if (vis.length < 3 || area(vis) < 0.5) continue;
+      const xs = vis.map((p) => p[0]);
+      const ys = vis.map((p) => p[1]);
+      const bx = Math.min(...xs);
+      const by = Math.min(...ys);
+      const cxs = pc.poly.map((p) => p[0]);
+      const sx = Math.min(...cxs);
+      blocks.push({
+        x: bx,
+        y: by,
+        w: Math.max(...xs) - bx,
+        d: Math.max(...ys) - by,
+        poly: vis,
+        species: woods[pc.wood],
+        ref: { tile: pc.wood },
+        row: pc.row,
+        panel: 'T',
+        stick: `T:${pc.key}`,
+        sx,
+        sw: Math.max(...cxs) - sx,
+        rot: pc.rot,
+        flip: false,
+      });
+    }
+
+    // Stick shape, stock and kerf.
+    const kAngle = S.kerfRip / sin60; // kerf measured across the face at a 30 degree blade tilt
+    const shape = cubes
+      ? { name: 'diamond', thickness: s * sin60, width: s, faceWidth: s + kAngle, tilt: 30 }
+      : { name: 'hexagon', thickness: f, width: 2 * s, faceWidth: 2 * s + S.kerfRip, tilt: 30 };
+    const sliceLength = d.thickness + S.flatten;
+    const stickLength = S.endTrim + t.boards * (sliceLength + S.kerfCross);
+    const ripLength = Math.max(stickLength, 24 * IN);
+    const perRip = Math.max(1, Math.floor(ripLength / (stickLength + S.kerfCross)));
+
+    const bySp = {};
+    sticks.forEach((pc) => {
+      const sp = woods[pc.wood];
+      (bySp[sp] = bySp[sp] || { species: sp, count: 0 }).count += 1;
+    });
+    const lumber = [];
+    let rips = 0;
+    let angleRips = 0;
+    for (const e of Object.values(bySp)) {
+      const sp = CB.species ? CB.species.byId(speciesList || [], e.species) : { name: e.species, price: null };
+      const long = Math.ceil(e.count / perRip); // long sticks to rip
+      const stockWidth = cubes ? long * shape.faceWidth + s / 2 + IN / 4 : long * shape.faceWidth + IN / 4;
+      const thickness = shape.thickness + S.panelPlane;
+      const rough = roughFor(thickness);
+      const bf = (rough.inches * (stockWidth / IN) * (ripLength / IN)) / 144;
+      const bfBuy = bf * (1 + S.waste / 100);
+      rips += long;
+      angleRips += cubes ? long : long * 4;
+      lumber.push({
+        species: e.species,
+        name: sp.name,
+        color: sp.color,
+        price: sp.price,
+        sticks: e.count,
+        long,
+        rips: [{ key: e.species, panel: shape.name, width: shape.width, length: ripLength, thickness: shape.thickness, count: long }],
+        pieces: [{ panel: shape.name, width: stockWidth, length: ripLength, thickness, rough, bf }],
+        bf,
+        bfBuy,
+        cost: sp.price == null ? null : bfBuy * sp.price,
+        volumeM3: bfBuy * 0.00235974,
+      });
+    }
+    lumber.sort((a, b) => b.bf - a.bf);
+    const priced = lumber.filter((l) => l.cost != null);
+    const crossCuts = Math.ceil(sticks.length / perRip) * perRip; // sticks cut from the long rips
+    const total = {
+      bf: sum(lumber.map((l) => l.bf)),
+      bfBuy: sum(lumber.map((l) => l.bfBuy)),
+      cost: sum(priced.map((l) => l.cost)),
+      unpriced: lumber.filter((l) => l.cost == null).map((l) => l.name),
+      cuts: t.boards,
+      crossKerf: t.boards * S.kerfCross,
+      ripKerf: cubes ? rips * kAngle : rips * S.kerfRip,
+      rips,
+      angleRips,
+      sticks: sticks.length,
+      stickCuts: crossCuts,
+    };
+    const warnings = [];
+    if (s < IN / 2) warnings.push('Sticks this small are hard to cut safely. Use a push block and a zero-clearance insert, or make them bigger.');
+    const rowsUsed = [...new Set(sticks.map((pc) => pc.row))].length;
+    return {
+      pattern: d.pattern,
+      grain: d.grain || 'matched',
+      details: d.details || { ...DEFAULT_DETAILS },
+      method: cubes
+        ? 'Rip diamond sticks with the blade tilted 30\u00b0, glue them into a log so each hexagon is one diamond of each wood, then slice the log into boards.'
+        : 'Bevel six-sided sticks with the blade tilted 30\u00b0, glue them into a log row by row, then slice the log into boards.',
+      accent: null,
+      rows: [],
+      shift: 0,
+      board: { width: W, length: L, thickness: d.thickness, gluedWidth: W + 2 * E },
+      blocks,
+      panels: [],
+      tiles: {
+        kind: cubes ? 'cubes' : 'honeycomb',
+        size: s,
+        across: f,
+        shape,
+        woods,
+        sticks: sticks.length,
+        rows: rowsUsed,
+        stickLength,
+        ripLength,
+        perRip,
+        boards: t.boards,
+        sliceLength,
+        logWidth: W + 2 * E,
+        logLength: L + 2 * E,
+        kerfAngle: kAngle,
+        pieces: sticks.map((pc) => ({ poly: pc.poly, species: woods[pc.wood], row: pc.row, rot: pc.rot })),
+      },
+      lumber,
+      total,
+      warnings,
+      settings: S,
+    };
+  }
+
   // Strip fitter: ways to reach a finished size. Every board measurement is
   // linear in the strip widths and row depths, so each option is measured at
   // one scale with compute(), then scaled and rounded to a sensible step.
@@ -535,6 +746,7 @@
     const clone = () => JSON.parse(JSON.stringify(d));
     if (!(t.width > 0) || !(t.length > 0)) return [];
 
+    if (isTile(d.pattern)) return [];
     if (d.pattern === 'plaid') {
       const x = clone();
       const b = measure(x);
@@ -582,5 +794,5 @@
     return out;
   }
 
-  CB.engine = { IN, PATTERNS, DEFAULT_SETTINGS, DEFAULT_ACCENT, DEFAULT_DETAILS, fitOptions, accentBand, chord, newDesign, normalizeDesign, generate, compute, roughFor, uid, alternate };
+  CB.engine = { isTile, DEFAULT_TILE, clip, IN, PATTERNS, DEFAULT_SETTINGS, DEFAULT_ACCENT, DEFAULT_DETAILS, fitOptions, accentBand, chord, newDesign, normalizeDesign, generate, compute, roughFor, uid, alternate };
 })(typeof window !== 'undefined' ? window : globalThis);

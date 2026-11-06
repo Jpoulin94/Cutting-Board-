@@ -744,6 +744,22 @@ table.t tfoot td {
   overflow-y: auto;
   width: min(880px, calc(100vw - 64px));
 }
+.stock-item {
+  position: relative;
+  display: flex;
+}
+.stock-item > .stock-card {
+  flex: 1;
+}
+.stock-item.is-hidden {
+  opacity: 0.6;
+}
+.stock-hide {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: var(--panel);
+}
 .stock-card {
   display: flex;
   flex-direction: column;

@@ -1,5 +1,4 @@
-// Stock designs to start from. Each one only uses the Phase 1 patterns, so
-// every one has a working cut list.
+// Stock designs to start from. Every one has a working cut list.
 (function (root) {
   'use strict';
   const CB = (root.CB = root.CB || {});
@@ -23,6 +22,8 @@
       .split(/\s+/)
       .map((t) => ({ species: SP[t[0]], width: Number(t.slice(1)) * IN }));
   const repeat = (text, n) => Array.from({ length: n }, () => text).join(' ');
+  // "M W C" -> honeycomb or cube woods; size in inches.
+  const tile = (text, size) => ({ width: 12 * IN, length: 16 * IN, size: size * IN, woods: text.split(' ').map((c) => ({ species: SP[c] })), arrange: 'three', boards: 1 });
   const plan = (text, ids) => [...text].map((ch) => ({ panel: ids[ch], flip: false }));
 
   const PRESETS = [
@@ -45,6 +46,46 @@
       name: 'Zebrawood with purpleheart accents',
       blurb: 'Zebrawood squares with purpleheart lines that alternate direction.',
       design: { pattern: 'stripes', strips: strips(repeat('Z1.5', 8)), rows: 10, rowDepth: 1.5 * IN, thickness: 1.5 * IN, accent: accent(SP.P, true) },
+    },
+    {
+      name: '3D cubes',
+      blurb: 'Maple tops with walnut and cherry sides, so the board looks like a pile of cubes.',
+      design: { pattern: 'cubes', thickness: 1.5 * IN, tile: tile('M W C', 1) },
+    },
+    {
+      name: 'Dark 3D cubes',
+      blurb: 'Maple tops over wenge and walnut sides for strong shadows.',
+      design: { pattern: 'cubes', thickness: 1.5 * IN, tile: tile('M G W', 1.25) },
+    },
+    {
+      name: 'Purpleheart cubes',
+      blurb: 'Maple, purpleheart and walnut cubes.',
+      design: { pattern: 'cubes', thickness: 1.5 * IN, tile: tile('M P W', 1) },
+    },
+    {
+      name: 'Zebrawood cubes',
+      blurb: 'Zebrawood tops with walnut and wenge sides.',
+      design: { pattern: 'cubes', thickness: 1.5 * IN, tile: tile('Z W G', 1.25) },
+    },
+    {
+      name: 'Honeycomb',
+      blurb: 'Maple, walnut and cherry hexagons, no two alike touching.',
+      design: { pattern: 'honeycomb', thickness: 1.5 * IN, tile: tile('M W C', 1) },
+    },
+    {
+      name: 'Walnut and maple honeycomb',
+      blurb: 'Rows of walnut and maple hexagons.',
+      design: { pattern: 'honeycomb', thickness: 1.5 * IN, tile: { ...tile('W M C', 1.25), arrange: 'rows' } },
+    },
+    {
+      name: 'Padauk honeycomb',
+      blurb: 'Padauk, maple and wenge hexagons.',
+      design: { pattern: 'honeycomb', thickness: 1.5 * IN, tile: tile('R M G', 1) },
+    },
+    {
+      name: 'Walnut honeycomb',
+      blurb: 'All walnut hexagons; the glue lines and grain make the pattern.',
+      design: { pattern: 'honeycomb', thickness: 1.5 * IN, tile: { ...tile('W M C', 1.5), arrange: 'single' } },
     },
     {
       name: 'Classic checkerboard',
@@ -135,6 +176,21 @@
         rowPlan: plan('ABACABACA', { A: 'pA', B: 'pB', C: 'pC' }),
         thickness: 1.5 * IN,
       },
+    },
+    {
+      name: 'Mahogany and maple checks',
+      blurb: '1-1/4" squares of mahogany and maple.',
+      design: { pattern: 'checker', strips: strips(repeat('H1.25 M1.25', 5)), rows: 13, rowDepth: 1.25 * IN, thickness: 1.5 * IN },
+    },
+    {
+      name: 'Purpleheart pinstripe',
+      blurb: 'Walnut stripes split by thin purpleheart lines.',
+      design: { pattern: 'stripes', strips: strips(`${repeat('W1.75 P.25', 5)} W1.75`), rows: 10, rowDepth: 1.5 * IN, thickness: 1.5 * IN },
+    },
+    {
+      name: 'Cherry and walnut brick',
+      blurb: 'Brick pattern with every other row shifted a third.',
+      design: { pattern: 'brick', strips: strips(repeat('C1.5 W1.5', 5)), rows: 12, rowDepth: 1.25 * IN, brickShift: 1 / 3, thickness: 1.5 * IN },
     },
     {
       name: 'Padauk accent checks',

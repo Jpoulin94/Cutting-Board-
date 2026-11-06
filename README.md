@@ -11,6 +11,7 @@ The app is a single web page with nothing to install and no internet connection 
 
 ### The screen
 - **Left**: the pattern, the board size, the strips left to right, and **Kerf and allowances**.
+- **Stock designs**: tap **Hide** on any you don't want; **Show hidden designs** brings them back.
 - **Fit to a size** (next to Board): type the finished width and length you want, and pick from a few strip counts that keep your pattern.
 - **Edges and handles**: preview a juice groove, a bevel on the top edges, finger grips or hand holes. These only change the picture, not the cut list.
 - **Middle**: the 3D preview. Drag to turn it, scroll or pinch to zoom, and use **3D / Top / Side / End** for preset views.
@@ -21,6 +22,8 @@ The app is a single web page with nothing to install and no internet connection 
 - **End grain stripes**: every row the same.
 - **Checkerboard**: every other row flipped end for end. With an odd number of strips the app switches to two panels, since flipping wouldn't change the colours.
 - **Brick / offset**: every other row slides sideways by 1/4 to 3/4 of a strip, optionally flipped too. The ragged edges are trimmed off.
+- **Honeycomb**: six-sided sticks beveled at 30°, glued into a log and sliced. Pick one, two or three woods.
+- **3D cubes**: diamond sticks in three woods (top, left, right faces), glued so each hexagon reads as a cube.
 - **Plaid / custom grid**: two or more panels, each with its own strips and thickness (row depth), stacked in any order. Type an order like `AABAAB` to set the rows quickly.
 
 ### Changing colours

@@ -132,7 +132,7 @@ test('every stock design builds a board with a cut list', () => {
     const d = presets.make(p, engine.DEFAULT_SETTINGS);
     const r = engine.compute(d, species.defaults());
     assert.ok(r.board.width > 0 && r.board.length > 0, p.name);
-    assert.ok(r.blocks.length > 0 && r.panels.length > 0, p.name);
+    assert.ok(r.blocks.length > 0 && (r.panels.length > 0 || r.tiles), p.name);
     assert.deepEqual(r.warnings.filter((w) => w.includes('different widths')), [], `${p.name} panels differ in width`);
     assert.equal(d.pattern, p.design.pattern, p.name);
   }
@@ -272,4 +272,42 @@ test('edge details are kept and cleaned up', () => {
   near(d.details.grooveInset, 0.75 * IN, 'default inset');
   assert.equal(engine.normalizeDesign({ ...d, details: { handles: 'nope' } }).details.handles, 'none');
   assert.equal(engine.compute(d, species.defaults()).details.groove, true);
+});
+
+test('honeycomb and 3D cubes cover the board and count their sticks', () => {
+  const sp = species.defaults();
+  const { planner, presets } = require('./load');
+  const areaOf = (poly) => Math.abs(poly.reduce((a, p, i) => { const q = poly[(i + 1) % poly.length]; return a + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
+  for (const pattern of ['honeycomb', 'cubes']) {
+    const d = engine.normalizeDesign({ ...engine.newDesign('t'), pattern });
+    const r = engine.compute(d, sp);
+    near(r.board.width, 12 * IN, `${pattern} width`);
+    const covered = r.blocks.reduce((a, b) => a + areaOf(b.poly), 0);
+    assert.ok(Math.abs(covered / (r.board.width * r.board.length) - 1) < 1e-6, `${pattern} covers the board`);
+    assert.equal(r.lumber.reduce((a, l) => a + l.sticks, 0), r.tiles.sticks);
+    // Sticks are cut from long rips; enough of them for every short stick.
+    for (const l of r.lumber) assert.ok(l.long * r.tiles.perRip >= l.sticks);
+    // Slice length is board thickness + flattening; each stick also has end trim and one kerf.
+    near(r.tiles.stickLength, d.settings.endTrim + (d.thickness + d.settings.flatten + d.settings.kerfCross), `${pattern} stick length`);
+    const keys = planner.steps(d, r, sp, { units: 'in', precision: 16 }).map((s) => s.key);
+    assert.deepEqual(keys, ['mill', 'sticks', 'cut', 'log', 'slice', 'trim', 'finish']);
+  }
+  // Every diamond side matches the size, and hexagons are regular.
+  const cubes = engine.compute(engine.normalizeDesign({ ...engine.newDesign('c'), pattern: 'cubes' }), sp);
+  const pc = cubes.tiles.pieces[0].poly;
+  for (let i = 0; i < 4; i++) near(Math.hypot(pc[i][0] - pc[(i + 1) % 4][0], pc[i][1] - pc[(i + 1) % 4][1]), IN, 'diamond side');
+  // Three-wood honeycomb: no two neighbours alike.
+  const hc = engine.compute(engine.normalizeDesign({ ...engine.newDesign('h'), pattern: 'honeycomb' }), sp).tiles.pieces;
+  const cen = (p) => [p.poly.reduce((a, q) => a + q[0], 0) / 6, p.poly.reduce((a, q) => a + q[1], 0) / 6];
+  for (const a of hc) for (const b of hc) {
+    if (a === b) continue;
+    const [ax, ay] = cen(a);
+    const [bx, by] = cen(b);
+    if (Math.hypot(ax - bx, ay - by) < IN * Math.sqrt(3) * 1.01) assert.notEqual(a.species, b.species);
+  }
+  // Every stock design computes.
+  for (const p of presets.PRESETS) {
+    const r = engine.compute(presets.make(p, engine.DEFAULT_SETTINGS), sp);
+    assert.ok(r.board.width > 0 && r.lumber.length > 0, p.name);
+  }
 });

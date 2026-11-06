@@ -93,6 +93,10 @@
 
     const sorted = [...boxes].sort((a, b) => depth(a) - depth(b));
     for (const b of sorted) {
+      if (b.prism) {
+        drawPrism(ctx, b, sp, P, facing, s);
+        continue;
+      }
       const species = sp[b.species] || { color: '#999999', streak: '' };
       const base = hexRgb(species.color);
       const streak = species.streak ? hexRgb(species.streak) : null;
@@ -169,6 +173,81 @@
     }
   }
 
+  // A stick with a many-sided end: b.prism = { pts, axis }. With axis 'z'
+  // the points are world (x, y) and it stands from z to z + h; with axis 'y'
+  // they are world (x, z) and it lies from y to y + d.
+  function drawPrism(ctx, b, sp, P, facing, scale) {
+    const species = sp[b.species] || { color: '#999999', streak: '' };
+    const base = hexRgb(species.color);
+    const streak = species.streak ? hexRgb(species.streak) : null;
+    const { pts, axis } = b.prism;
+    const r = rand(b.seed ?? 7);
+    const area = pts.reduce((a, p, i) => { const q = pts[(i + 1) % pts.length]; return a + p[0] * q[1] - q[0] * p[1]; }, 0);
+    const ccw = area > 0;
+    const lo = axis === 'z' ? b.z : b.y;
+    const len = axis === 'z' ? b.h : b.d;
+    const W3 = (u, v, t) => (axis === 'z' ? [u, v, t] : [u, t, v]);
+    const N3 = (nu, nv, nt) => (axis === 'z' ? [nu, nv, nt] : [nu, nt, nv]);
+    const light = (n) => 0.62 + 0.38 * Math.max(0, -0.35 * n[0] + 0.45 * n[1] + 0.82 * n[2]);
+    const face = (corners, n, texture) => {
+      if (!facing(n)) return;
+      const k = light(n);
+      const scr = corners.map((c) => P(...c));
+      path(ctx, scr);
+      ctx.fillStyle = rgb(base, k);
+      ctx.fill();
+      ctx.save();
+      ctx.clip();
+      texture(k);
+      ctx.restore();
+      path(ctx, scr);
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+      ctx.lineWidth = 0.7;
+      ctx.stroke();
+    };
+    // Sides: long grain running along the stick.
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i];
+      const c = pts[(i + 1) % pts.length];
+      const du = c[0] - a[0];
+      const dv = c[1] - a[1];
+      const el = Math.hypot(du, dv);
+      if (el < 1e-6) continue;
+      const nu = (ccw ? dv : -dv) / el;
+      const nv = (ccw ? -du : du) / el;
+      const corners = [W3(a[0], a[1], lo), W3(c[0], c[1], lo), W3(c[0], c[1], lo + len), W3(a[0], a[1], lo + len)];
+      face(corners, N3(nu, nv, 0), (k) => {
+        const o = P(...corners[0]);
+        const pa = P(...corners[1]);
+        const pb = P(...corners[3]);
+        ctx.transform((pa[0] - o[0]) / el, (pa[1] - o[1]) / el, (pb[0] - o[0]) / len, (pb[1] - o[1]) / len, o[0], o[1]);
+        longGrain(ctx, { la: el, lb: len, k }, 'b', base, streak, r, scale);
+      });
+    }
+    // The two ends: end grain.
+    for (const [t, sign] of [[lo, -1], [lo + len, 1]]) {
+      const corners = pts.map(([u, v]) => W3(u, v, t));
+      face(corners, N3(0, 0, sign), (k) => {
+        const us = pts.map((p) => p[0]);
+        const vs = pts.map((p) => p[1]);
+        const u0 = Math.min(...us);
+        const v0 = Math.min(...vs);
+        const o = P(...W3(u0, v0, t));
+        const pa = P(...W3(u0 + 1, v0, t));
+        const pb = P(...W3(u0, v0 + 1, t));
+        ctx.transform(pa[0] - o[0], pa[1] - o[1], pb[0] - o[0], pb[1] - o[1], o[0], o[1]);
+        if (b.turn) {
+          const cu = (Math.max(...us) - u0) / 2;
+          const cv = (Math.max(...vs) - v0) / 2;
+          ctx.translate(cu, cv);
+          ctx.rotate((b.turn * Math.PI) / 180);
+          ctx.translate(-cu, -cv);
+        }
+        endGrain(ctx, { la: Math.max(...us) - u0, lb: Math.max(...vs) - v0, k }, base, streak, r, b);
+      });
+    }
+  }
+
   function endGrain(ctx, f, base, streak, r, b) {
     const size = Math.max(f.la, f.lb);
     const cx = f.la / 2 + (r() - 0.5) * f.la * 0.4;
@@ -225,6 +304,7 @@
 
   // ---------- the pictures for each stage ----------
   function stages(design, r) {
+    if (r.tiles) return tileStages(design, r);
     const out = {};
     const IN = 25.4;
     const gapOf = (v) => Math.max(IN * 0.4, v * 0.06);
@@ -334,6 +414,81 @@
       const decor = [{ poly: b0.accent.poly.map(([x, y]) => [x - b0.x, y - b0.y]), species: b0.accent.species }];
       out['accent-glue'] = { boxes: [{ x: 0, y: 0, z: 0, w: b0.w, d: b0.d, h: b0.d * 2.2, species: b0.species, grain: 'z', decor }], yaw: -30, pitch: 40 };
     }
+    return out;
+  }
+
+  // A prism item from an outline, with its bounding box filled in.
+  function prismItem(pts, axis, lo, len, species, seed, turn) {
+    const us = pts.map((p) => p[0]);
+    const vs = pts.map((p) => p[1]);
+    const u0 = Math.min(...us);
+    const v0 = Math.min(...vs);
+    const du = Math.max(...us) - u0;
+    const dv = Math.max(...vs) - v0;
+    const box = axis === 'z' ? { x: u0, y: v0, z: lo, w: du, d: dv, h: len } : { x: u0, y: lo, z: v0, w: du, d: len, h: dv };
+    return { ...box, species, seed, turn, grain: axis, prism: { pts, axis } };
+  }
+
+  function tileStages(design, r) {
+    const out = {};
+    const IN = 25.4;
+    const t = r.tiles;
+    const S = r.settings;
+    const cubes = t.kind === 'cubes';
+    const s = t.size;
+    const sh = t.shape;
+    // The stick's end lying on the bench, in (x, z).
+    const endPts = cubes
+      ? [[s / 2, 0], [s * 1.5, 0], [s, sh.thickness], [0, sh.thickness]]
+      : [[s / 2, 0], [s * 1.5, 0], [2 * s, sh.thickness / 2], [s * 1.5, sh.thickness], [s / 2, sh.thickness], [0, sh.thickness / 2]];
+    const span = cubes ? s * 1.5 : 2 * s;
+
+    // Boards to mill.
+    {
+      const boxes = [];
+      let x = 0;
+      for (const l of r.lumber) {
+        const p = l.pieces[0];
+        boxes.push({ x, y: 0, z: 0, w: p.width, d: p.length, h: p.thickness, species: l.species, grain: 'y' });
+        x += p.width + IN;
+      }
+      out.mill = { boxes };
+    }
+
+    // Long angled sticks, a few of each wood.
+    {
+      const boxes = [];
+      let x = 0;
+      const shown = Math.min(t.ripLength, 16 * IN);
+      r.lumber.forEach((l, li) => {
+        for (let i = 0; i < Math.min(3, l.long); i++) {
+          boxes.push(prismItem(endPts.map(([u, v]) => [u + x, v]), 'y', 0, shown, l.species, li * 17 + i * 5 + 3));
+          x += span + s * 0.5;
+        }
+        x += s;
+      });
+      out.sticks = { boxes };
+    }
+
+    // Short sticks cut from them.
+    {
+      const boxes = [];
+      r.lumber.forEach((l, li) => {
+        for (let i = 0; i < 4; i++) {
+          boxes.push(prismItem(endPts.map(([u, v]) => [u + i * (span + s * 0.6), v]), 'y', li * (t.stickLength + s * 1.2), t.stickLength, l.species, li * 17 + i * 5 + 3));
+        }
+      });
+      out.cut = { boxes };
+    }
+
+    // The log, end grain up, and slices from it.
+    const E = S.edgeTrim;
+    const logItems = (h, lift = 0) => t.pieces.map((pc, i) => prismItem(pc.poly.map(([x, y]) => [x + E, y + E]), 'z', lift, h, pc.species, i * 7 + 1, pc.rot));
+    out.log = { boxes: logItems(t.stickLength), pitch: 40 };
+    out.slice = { boxes: logItems(t.sliceLength), pitch: 40 };
+    const boardItems = r.blocks.map((b, i) => prismItem(b.poly, 'z', 0, r.board.thickness, b.species, i * 7 + 1, b.rot));
+    out.trim = { boxes: boardItems, pitch: 40 };
+    out.finish = { boxes: boardItems, yaw: -38, pitch: 42 };
     return out;
   }
 

@@ -265,17 +265,33 @@
       ctx.fill();
       ctx.restore();
 
+      // Each block's stretch along a board edge, from its outline.
+      const edgeSpan = (b, axis, at) => {
+        const vals = (b.poly || []).filter((p) => Math.abs(p[axis] - at) < 0.01).map((p) => p[1 - axis]);
+        if (vals.length < 2) return null;
+        const lo = Math.min(...vals);
+        const hi = Math.max(...vals);
+        return hi - lo > 0.01 ? [lo, hi] : null;
+      };
+      const sideOf = (axis, at) =>
+        r.blocks
+          .map((b) => {
+            const sp = edgeSpan(b, axis, at);
+            if (!sp) return null;
+            return { b, quad: axis === 1 ? [[sp[0], at], [sp[1], at]] : [[at, sp[0]], [at, sp[1]]] };
+          })
+          .filter(Boolean);
       const sides = [
-        { n: [0, 1, 0], blocks: r.blocks.filter((b) => Math.abs(b.y + b.d - L) < eps), quad: (b) => [[b.x, L], [b.x + b.w, L]] },
-        { n: [0, -1, 0], blocks: r.blocks.filter((b) => b.y < eps), quad: (b) => [[b.x, 0], [b.x + b.w, 0]] },
-        { n: [1, 0, 0], blocks: r.blocks.filter((b) => Math.abs(b.x + b.w - W) < eps), quad: (b) => [[W, b.y], [W, b.y + b.d]] },
-        { n: [-1, 0, 0], blocks: r.blocks.filter((b) => b.x < eps), quad: (b) => [[0, b.y], [0, b.y + b.d]] },
+        { n: [0, 1, 0], items: sideOf(1, L) },
+        { n: [0, -1, 0], items: sideOf(1, 0) },
+        { n: [1, 0, 0], items: sideOf(0, W) },
+        { n: [-1, 0, 0], items: sideOf(0, 0) },
       ];
       for (const side of sides) {
         if (!P.facing(...side.n)) continue;
         const k = P.light(side.n[0], side.n[1]);
-        for (const b of side.blocks) {
-          const [[x0, y0], [x1, y1]] = side.quad(b);
+        for (const { b, quad } of side.items) {
+          const [[x0, y0], [x1, y1]] = quad;
           const pts = [proj(x0, y0, 0), proj(x1, y1, 0), proj(x1, y1, Tz), proj(x0, y0, Tz)];
           const c0 = col(b.species);
           ctx.fillStyle = rgb(c0, k);
@@ -296,10 +312,10 @@
       // cuts through.
       if (B > 0) {
         const bevels = [
-          { n: [0, -1], quad: [[0, 0, Tz], [W, 0, Tz], [W - B, B, T], [B, B, T]], hit: (b) => b.y < B, z: (x, y) => Tz + y, clipR: (b) => [b.x, Math.max(b.y, 0), b.x + b.w, Math.min(b.y + b.d, B)] },
-          { n: [0, 1], quad: [[0, L, Tz], [W, L, Tz], [W - B, L - B, T], [B, L - B, T]], hit: (b) => b.y + b.d > L - B, z: (x, y) => Tz + (L - y), clipR: (b) => [b.x, Math.max(b.y, L - B), b.x + b.w, Math.min(b.y + b.d, L)] },
-          { n: [-1, 0], quad: [[0, 0, Tz], [0, L, Tz], [B, L - B, T], [B, B, T]], hit: (b) => b.x < B, z: (x) => Tz + x, clipR: (b) => [Math.max(b.x, 0), b.y, Math.min(b.x + b.w, B), b.y + b.d] },
-          { n: [1, 0], quad: [[W, 0, Tz], [W, L, Tz], [W - B, L - B, T], [W - B, B, T]], hit: (b) => b.x + b.w > W - B, z: (x) => Tz + (W - x), clipR: (b) => [Math.max(b.x, W - B), b.y, Math.min(b.x + b.w, W), b.y + b.d] },
+          { n: [0, -1], quad: [[0, 0, Tz], [W, 0, Tz], [W - B, B, T], [B, B, T]], hit: (b) => b.y < B, z: (x, y) => Tz + y, band: [0, 1, B] },
+          { n: [0, 1], quad: [[0, L, Tz], [W, L, Tz], [W - B, L - B, T], [B, L - B, T]], hit: (b) => b.y + b.d > L - B, z: (x, y) => Tz + (L - y), band: [0, -1, -(L - B)] },
+          { n: [-1, 0], quad: [[0, 0, Tz], [0, L, Tz], [B, L - B, T], [B, B, T]], hit: (b) => b.x < B, z: (x) => Tz + x, band: [1, 0, B] },
+          { n: [1, 0], quad: [[W, 0, Tz], [W, L, Tz], [W - B, L - B, T], [W - B, B, T]], hit: (b) => b.x + b.w > W - B, z: (x) => Tz + (W - x), band: [-1, 0, -(W - B)] },
         ];
         for (const bv of bevels) {
           if (!P.facing(bv.n[0], bv.n[1], 1)) continue;
@@ -309,9 +325,9 @@
           ctx.clip();
           for (const b of r.blocks) {
             if (!bv.hit(b)) continue;
-            const [x0, y0, x1, y1] = bv.clipR(b);
-            if (x1 <= x0 || y1 <= y0) continue;
-            const pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(([x, y]) => proj(x, y, bv.z(x, y)));
+            const part = CB.engine.clip(b.poly, ...bv.band);
+            if (part.length < 3) continue;
+            const pts = part.map(([x, y]) => proj(x, y, bv.z(x, y)));
             ctx.fillStyle = rgb(col(b.species), k);
             poly(ctx, pts);
             ctx.fill();
@@ -338,7 +354,7 @@
       const ay = proj(0, 1, T);
       const affine = [ax[0] - o[0], ax[1] - o[1], ay[0] - o[0], ay[1] - o[1], o[0], o[1]];
       for (const b of r.blocks) {
-        const pts = [proj(b.x, b.y, T), proj(b.x + b.w, b.y, T), proj(b.x + b.w, b.y + b.d, T), proj(b.x, b.y + b.d, T)];
+        const pts = b.poly.map(([x, y]) => proj(x, y, T));
         const c0 = col(b.species);
         const matched = r.grain === 'matched';
         // Matched: every slice of a stick shows that stick's own grain,
@@ -365,7 +381,7 @@
       ctx.strokeStyle = 'rgba(0,0,0,0.22)';
       ctx.lineWidth = 0.7;
       for (const b of r.blocks) {
-        poly(ctx, [proj(b.x, b.y, T), proj(b.x + b.w, b.y, T), proj(b.x + b.w, b.y + b.d, T), proj(b.x, b.y + b.d, T)]);
+        poly(ctx, b.poly.map(([x, y]) => proj(x, y, T)));
         ctx.stroke();
       }
 
@@ -375,7 +391,7 @@
       // Selected strip and hover.
       const accent = getComputedStyle(this.canvas).getPropertyValue('--accent').trim() || '#a0562a';
       const outline = (b, color, width, fill) => {
-        const pts = [proj(b.x, b.y, T), proj(b.x + b.w, b.y, T), proj(b.x + b.w, b.y + b.d, T), proj(b.x, b.y + b.d, T)];
+        const pts = b.poly.map(([x, y]) => proj(x, y, T));
         poly(ctx, pts);
         if (fill) {
           ctx.fillStyle = fill;
@@ -525,8 +541,7 @@
       const dark = luminance(c0) < 0.35;
       ctx.save();
       ctx.transform(...affine);
-      ctx.beginPath();
-      ctx.rect(b.x, b.y, b.w, b.d);
+      poly(ctx, b.poly);
       ctx.clip();
       ctx.strokeStyle = dark ? 'rgba(255,235,210,0.10)' : 'rgba(60,30,10,0.13)';
       ctx.lineWidth = gap * 0.28;
@@ -555,8 +570,7 @@
       const steps = this.fast ? 28 : 90;
       ctx.save();
       ctx.transform(...affine);
-      ctx.beginPath();
-      ctx.rect(b.x, b.y, b.w, b.d);
+      poly(ctx, b.poly);
       ctx.clip();
       const ring = (r) => {
         ctx.beginPath();
