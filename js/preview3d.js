@@ -249,6 +249,12 @@
       const { proj } = P;
       const col = (id) => hexRgb(this.colors[id] || '#999999');
       const eps = 1e-6;
+      const X = r.details || {};
+      const IN = 25.4;
+      const B = Math.min(X.bevel || 0, T * 0.9, W / 4, L / 4);
+      const Tz = T - B; // top of the square sides
+      // The "ends" are the short sides.
+      const endsY = L >= W;
 
       // Shadow under the board.
       const shadow = [proj(0, 0, 0), proj(W, 0, 0), proj(W, L, 0), proj(0, L, 0)];
@@ -270,7 +276,7 @@
         const k = P.light(side.n[0], side.n[1]);
         for (const b of side.blocks) {
           const [[x0, y0], [x1, y1]] = side.quad(b);
-          const pts = [proj(x0, y0, 0), proj(x1, y1, 0), proj(x1, y1, T), proj(x0, y0, T)];
+          const pts = [proj(x0, y0, 0), proj(x1, y1, 0), proj(x1, y1, Tz), proj(x0, y0, Tz)];
           const c0 = col(b.species);
           ctx.fillStyle = rgb(c0, k);
           poly(ctx, pts);
@@ -282,9 +288,51 @@
           ctx.stroke();
           this.hits.push({ poly: pts, block: b });
         }
+        const isEnd = endsY ? side.n[1] !== 0 : side.n[0] !== 0;
+        if (X.handles === 'grips' && isEnd) this.grip(ctx, P, side.n, W, L, T, IN);
+      }
+
+      // Bevel: a 45 degree face along each top edge, showing the blocks it
+      // cuts through.
+      if (B > 0) {
+        const bevels = [
+          { n: [0, -1], quad: [[0, 0, Tz], [W, 0, Tz], [W - B, B, T], [B, B, T]], hit: (b) => b.y < B, z: (x, y) => Tz + y, clipR: (b) => [b.x, Math.max(b.y, 0), b.x + b.w, Math.min(b.y + b.d, B)] },
+          { n: [0, 1], quad: [[0, L, Tz], [W, L, Tz], [W - B, L - B, T], [B, L - B, T]], hit: (b) => b.y + b.d > L - B, z: (x, y) => Tz + (L - y), clipR: (b) => [b.x, Math.max(b.y, L - B), b.x + b.w, Math.min(b.y + b.d, L)] },
+          { n: [-1, 0], quad: [[0, 0, Tz], [0, L, Tz], [B, L - B, T], [B, B, T]], hit: (b) => b.x < B, z: (x) => Tz + x, clipR: (b) => [Math.max(b.x, 0), b.y, Math.min(b.x + b.w, B), b.y + b.d] },
+          { n: [1, 0], quad: [[W, 0, Tz], [W, L, Tz], [W - B, L - B, T], [W - B, B, T]], hit: (b) => b.x + b.w > W - B, z: (x) => Tz + (W - x), clipR: (b) => [Math.max(b.x, W - B), b.y, Math.min(b.x + b.w, W), b.y + b.d] },
+        ];
+        for (const bv of bevels) {
+          if (!P.facing(bv.n[0], bv.n[1], 1)) continue;
+          const k = (1 + P.light(bv.n[0], bv.n[1])) / 2;
+          ctx.save();
+          poly(ctx, bv.quad.map((q) => proj(...q)));
+          ctx.clip();
+          for (const b of r.blocks) {
+            if (!bv.hit(b)) continue;
+            const [x0, y0, x1, y1] = bv.clipR(b);
+            if (x1 <= x0 || y1 <= y0) continue;
+            const pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(([x, y]) => proj(x, y, bv.z(x, y)));
+            ctx.fillStyle = rgb(col(b.species), k);
+            poly(ctx, pts);
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(0,0,0,0.16)';
+            ctx.lineWidth = 0.6;
+            ctx.stroke();
+          }
+          ctx.restore();
+          poly(ctx, bv.quad.map((q) => proj(...q)));
+          ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+          ctx.lineWidth = 0.6;
+          ctx.stroke();
+        }
       }
 
       // Top face: one quad per block, with end grain rings.
+      ctx.save();
+      if (B > 0) {
+        poly(ctx, [proj(B, B, T), proj(W - B, B, T), proj(W - B, L - B, T), proj(B, L - B, T)]);
+        ctx.clip();
+      }
       const o = proj(0, 0, T);
       const ax = proj(1, 0, T);
       const ay = proj(0, 1, T);
@@ -321,6 +369,9 @@
         ctx.stroke();
       }
 
+      if (X.groove) this.groove(ctx, affine, W, L, X, B, IN);
+      if (X.handles === 'holes') this.holes(ctx, P, W, L, T, X, B, IN, endsY);
+
       // Selected strip and hover.
       const accent = getComputedStyle(this.canvas).getPropertyValue('--accent').trim() || '#a0562a';
       const outline = (b, color, width, fill) => {
@@ -341,6 +392,117 @@
         for (const b of r.blocks) if (sameRef(b.ref, this.hover.ref)) outline(b, 'rgba(255,255,255,0.9)', 1.4);
         outline(this.hover, luminance(col(this.hover.species)) > 0.6 ? '#000' : '#fff', 2);
       }
+      ctx.restore();
+    }
+
+    // A routed juice groove: a rounded channel inset from the edge.
+    groove(ctx, affine, W, L, X, B, IN) {
+      const g = Math.max(X.grooveInset, B + 2);
+      const gw = Math.min(X.grooveWidth, (Math.min(W, L) - 2 * g) / 3);
+      if (gw <= 0) return;
+      const rad = Math.max(IN, gw * 2);
+      const rr = (inset, r) => {
+        const x = inset;
+        const y = inset;
+        const w = W - 2 * inset;
+        const h = L - 2 * inset;
+        r = Math.max(0.5, Math.min(r, w / 2, h / 2));
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+      };
+      ctx.save();
+      ctx.transform(...affine);
+      ctx.beginPath();
+      rr(g, rad);
+      rr(g + gw, rad - gw);
+      ctx.fillStyle = 'rgba(0,0,0,0.26)';
+      ctx.fill('evenodd');
+      ctx.beginPath();
+      rr(g + gw * 0.5, rad - gw * 0.5);
+      ctx.strokeStyle = 'rgba(0,0,0,0.14)';
+      ctx.lineWidth = gw * 0.4;
+      ctx.stroke();
+      ctx.beginPath();
+      rr(g, rad);
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = gw * 0.08;
+      ctx.stroke();
+      ctx.beginPath();
+      rr(g + gw, rad - gw);
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.lineWidth = gw * 0.08;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Hand holes cut through near each end.
+    holes(ctx, P, W, L, T, X, B, IN, endsY) {
+      const across = endsY ? W : L;
+      const along = endsY ? L : W;
+      const hl = Math.min(4.5 * IN, across * 0.45);
+      const hh = Math.min(1.1 * IN, along * 0.12);
+      const c = (X.groove ? Math.max(X.grooveInset, B) + X.grooveWidth : B) + 0.6 * IN + hh / 2;
+      // Board point from (u across the end, v in from the edge).
+      const pt = (u, v, z, far) => {
+        const vv = far ? along - v : v;
+        return endsY ? P.proj(u, vv, z) : P.proj(vv, u, z);
+      };
+      const stadium = (z, far) => {
+        const pts = [];
+        const m = across / 2;
+        const rad = hh / 2;
+        for (let i = 0; i <= 12; i++) {
+          const a = -Math.PI / 2 + (i / 12) * Math.PI;
+          pts.push(pt(m + hl / 2 - rad + Math.cos(a) * rad, c + Math.sin(a) * rad, z, far));
+        }
+        for (let i = 0; i <= 12; i++) {
+          const a = Math.PI / 2 + (i / 12) * Math.PI;
+          pts.push(pt(m - hl / 2 + rad + Math.cos(a) * rad, c + Math.sin(a) * rad, z, far));
+        }
+        return pts;
+      };
+      for (const far of [false, true]) {
+        const top = stadium(T, far);
+        ctx.save();
+        poly(ctx, top);
+        ctx.fillStyle = 'rgba(30,16,6,0.55)';
+        ctx.fill();
+        ctx.clip();
+        poly(ctx, stadium(0, far));
+        ctx.fillStyle = 'rgba(28,24,20,0.9)';
+        ctx.fill();
+        ctx.restore();
+        poly(ctx, top);
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+      }
+    }
+
+    // A finger grip routed under one end, seen on that end's face.
+    grip(ctx, P, n, W, L, T, IN) {
+      const alongX = n[1] !== 0; // the face runs along x
+      const span = alongX ? W : L;
+      const at = n[0] > 0 ? W : n[1] > 0 ? L : 0;
+      const gw = Math.min(5 * IN, span * 0.5);
+      const gh = T * 0.5;
+      const pts = [];
+      for (let i = 0; i <= 24; i++) {
+        const t = (i / 24) * Math.PI;
+        const u = span / 2 + Math.cos(t) * (gw / 2);
+        const z = Math.sin(t) * gh;
+        pts.push(alongX ? P.proj(u, at, z) : P.proj(at, u, z));
+      }
+      poly(ctx, pts);
+      ctx.fillStyle = 'rgba(15,8,3,0.58)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+      ctx.lineWidth = 0.7;
+      ctx.stroke();
     }
 
     endGrain(ctx, affine, b, c0, rnd) {

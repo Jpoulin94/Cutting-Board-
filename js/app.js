@@ -218,7 +218,7 @@
         .join('')}</div>
       <p class="blurb">${esc(engine.PATTERNS[d.pattern].blurb)}</p></section>`;
 
-    html += `<section class="section"><h2>Board</h2>
+    html += `<section class="section"><h2>Board <button class="small" data-act="fit">Fit to a size</button></h2>
       ${field('Thickness', lenInput('thickness', d.thickness), 'Finished, after flattening')}`;
     if (!plaid) {
       html += `${field('Strips', numInput('stripCount', d.strips.length, { max: 60 }), 'Columns across the width')}
@@ -297,6 +297,22 @@
         <p class="blurb">Each stick is ripped lengthwise at this angle and glued back together with the accent between, before glue-up 1.</p>`
           : ''
       }
+    </section>`;
+
+    const X = d.details;
+    const bevels = prefs.units === 'mm' ? [0, 3, 6, 10, 13, 19, 25] : [0, 1 / 8, 1 / 4, 3 / 8, 1 / 2, 3 / 4, 1].map((x) => x * IN);
+    if (X.bevel && !bevels.some((b) => Math.abs(b - X.bevel) < 0.01)) bevels.push(X.bevel);
+    html += `<section class="section"><h2>Edges and handles <span class="muted">look only</span></h2>
+      <label class="check"><input type="checkbox" data-det="groove"${X.groove ? ' checked' : ''}/> Juice groove</label>
+      ${X.groove ? `${field('Groove from edge', lenInput('det:grooveInset', X.grooveInset))}${field('Groove width', lenInput('det:grooveWidth', X.grooveWidth))}` : ''}
+      ${field('Bevel', `<div class="inp"><select data-det="bevel">${bevels
+        .sort((a, b) => a - b)
+        .map((b) => `<option value="${b}"${Math.abs(b - X.bevel) < 0.01 ? ' selected' : ''}>${b ? fmt(b) : 'None'}</option>`)
+        .join('')}</select></div>`, '45\u00b0 on the top edges')}
+      ${field('Hand holds', `<div class="inp"><select data-det="handles">
+        <option value="none"${X.handles === 'none' ? ' selected' : ''}>None</option>
+        <option value="grips"${X.handles === 'grips' ? ' selected' : ''}>Finger grips under the ends</option>
+        <option value="holes"${X.handles === 'holes' ? ' selected' : ''}>Hand holes through the ends</option></select></div>`)}
     </section>`;
 
     html += `<details class="section" ${prefs.allowOpen ? 'open' : ''} data-allow><summary>Kerf and allowances</summary>
@@ -428,6 +444,7 @@
           stripsOf(ctx)[Number(i)].width = v;
         } else if (key === 'pickW') refStrip(selected).width = v;
         else if (key === 'acc:thickness') d.accent.thickness = v;
+        else if (key.startsWith('det:')) d.details[key.slice(4)] = v;
       });
       return;
     }
@@ -453,6 +470,13 @@
         if (ds.acc === 'enabled') d.accent.enabled = t.checked;
         else if (ds.acc === 'alternate') d.accent.alternate = t.value === '1';
         else d.accent[ds.acc] = t.value;
+      });
+    }
+    if (ds.det !== undefined) {
+      return commit((d) => {
+        if (ds.det === 'groove') d.details.groove = t.checked;
+        else if (ds.det === 'bevel') d.details.bevel = Number(t.value);
+        else d.details[ds.det] = t.value;
       });
     }
     if (ds.brickShift !== undefined) return commit((d) => (d.brickShift = Number(t.value)));
@@ -568,6 +592,8 @@
         return openSpecies();
       case 'stock':
         return openStock();
+      case 'fit':
+        return openFit();
       case 'sheet':
         return openSheet();
       case 'plan':
@@ -698,6 +724,83 @@
     load(made);
     pristine = snapshot();
     toast(`Started \u201c${chosen.name}\u201d. Save it to keep it.`);
+  }
+
+  // ---------- strip fitter ----------
+  async function openFit() {
+    const plaid = design.pattern === 'plaid';
+    const step = prefs.units === 'mm' ? 1 : IN / 16;
+    const round = (v) => Math.round(v / step) * step;
+    const widths = design.strips.map((x) => x.width);
+    const uniform = !plaid && widths.every((w) => Math.abs(w - widths[0]) < 1e-6);
+    const squares = uniform && Math.abs(design.rowDepth - widths[0]) < 1e-6;
+    const target = { width: round(result.board.width), length: round(result.board.length), stripWidth: plaid ? 0 : widths.reduce((a, b) => a + b, 0) / widths.length, square: squares };
+    let options = [];
+    const inp = (key, v) => `<div class="inp"><input type="text" inputmode="decimal" data-fit="${key}" value="${esc(fmt(v, false))}" /><span>${unitLabel()}</span></div>`;
+    const body = `<p class="muted" style="margin:0 0 12px">Type the finished size you want. Pick one of the options to use it; your woods and pattern stay the same.</p>
+      <div class="fit-fields">
+        ${field('Width', inp('width', target.width), 'Across the strips')}
+        ${field('Length', inp('length', target.length), 'Along the board')}
+        ${plaid ? '' : field('Strip width about', inp('stripWidth', target.stripWidth), 'Sets how many strips')}
+      </div>
+      ${squares ? '<label class="check"><input type="checkbox" data-fit-square checked/> Keep the squares square</label>' : ''}
+      <div class="fit-list"></div>`;
+    const list = () => {
+      const code = sheet.codes(speciesList, []);
+      if (!options.length) return '<p class="warn">Enter a width and length.</p>';
+      return options
+        .map((o, i) => {
+          const r = engine.compute(engine.normalizeDesign(o.design), speciesList);
+          const what = plaid
+            ? `Same layout, strips and rows scaled`
+            : `${o.n} strips${o.stripWidth ? ` at ${fmt(o.stripWidth)}` : ''} \u00b7 ${o.rows} rows${o.rowDepth ? ` at ${fmt(o.rowDepth)}` : ''}`;
+          return `<button type="button" class="fit-card${o.best ? ' best' : ''}" data-fit-pick="${i}">
+            ${sheet.boardSvg(r, speciesList, code, 96).replace(/<text[^>]*>[^<]*<\/text>/g, '')}
+            <span><b>${fmt(o.board.width)} \u00d7 ${fmt(o.board.length)}</b>${o.best ? ' <em>closest</em>' : ''}${o.keep && !plaid ? ' <em>same count</em>' : ''}<br><small>${what}</small></span>
+          </button>`;
+        })
+        .join('');
+    };
+    let chosen = null;
+    await dialog('Fit to a size', body, [{ label: 'Cancel', value: 'cancel', cls: 'ghost' }], (dlg) => {
+      const refresh = () => {
+        options = engine.fitOptions(design, speciesList, { ...target, step });
+        $('.fit-list', dlg).innerHTML = list();
+      };
+      dlg.querySelectorAll('[data-fit]').forEach((el) =>
+        el.addEventListener('change', () => {
+          const v = units.parseLength(el.value, prefs.units);
+          if (!Number.isFinite(v) || v <= 0) {
+            el.classList.add('bad');
+            return;
+          }
+          el.classList.remove('bad');
+          target[el.dataset.fit] = v;
+          refresh();
+        })
+      );
+      const sq = $('[data-fit-square]', dlg);
+      if (sq) sq.onchange = () => ((target.square = sq.checked), refresh());
+      $('.fit-list', dlg).onclick = (e) => {
+        const b = e.target.closest('[data-fit-pick]');
+        if (!b) return;
+        chosen = options[Number(b.dataset.fitPick)];
+        dlg.close('pick');
+      };
+      refresh();
+    });
+    if (!chosen) return;
+    selected = null;
+    commit((d) => {
+      const x = chosen.design;
+      if (plaid) d.panels = x.panels;
+      else {
+        d.strips = x.strips;
+        d.rows = x.rows;
+        d.rowDepth = x.rowDepth;
+      }
+    });
+    toast(`Now ${fmt(result.board.width)} \u00d7 ${fmt(result.board.length)}.`);
   }
 
   async function openSpecies() {

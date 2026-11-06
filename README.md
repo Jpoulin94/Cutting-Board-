@@ -11,6 +11,8 @@ The app is a single web page with nothing to install and no internet connection 
 
 ### The screen
 - **Left**: the pattern, the board size, the strips left to right, and **Kerf and allowances**.
+- **Fit to a size** (next to Board): type the finished width and length you want, and pick from a few strip counts that keep your pattern.
+- **Edges and handles**: preview a juice groove, a bevel on the top edges, finger grips or hand holes. These only change the picture, not the cut list.
 - **Middle**: the 3D preview. Drag to turn it, scroll or pinch to zoom, and use **3D / Top / Side / End** for preset views.
 - **Right**: the finished size, kerf lost, lumber needed with cost, and the glue-up order.
 - **Top**: undo and redo, inches or mm, **File**, **Species**, **Save** and **Shop sheet**.

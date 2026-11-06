@@ -242,3 +242,34 @@ test('build steps cover every stage, with accent steps only when needed', () => 
     assert.equal(steps.some((s) => s.key === 'accent-glue'), !!d.accent.enabled, p.name);
   }
 });
+
+test('strip fitter hits the width and keeps the pattern', () => {
+  const sp = species.defaults();
+  const { presets } = require('./load');
+  const opts = engine.fitOptions(checker(), sp, { width: 12 * IN, length: 15 * IN });
+  assert.ok(opts.length >= 2);
+  for (const o of opts) {
+    assert.ok(Math.abs(o.board.width - 12 * IN) <= o.n * (IN / 32) + 1e-6, `width for ${o.n} strips`);
+    o.design.strips.forEach((s, i) => assert.equal(s.species, i % 2 ? 'sp_walnut' : 'sp_maple'));
+    near(o.design.rowDepth, o.stripWidth, 'squares stay square');
+  }
+  assert.equal(opts.filter((o) => o.best).length, 1);
+  // A one-off layout like a centre stripe only scales; it never repeats.
+  const centre = engine.normalizeDesign(presets.make(presets.PRESETS.find((p) => /Centre stripe/.test(p.name)), engine.DEFAULT_SETTINGS));
+  const c = engine.fitOptions(centre, sp, { width: 14 * IN, length: 16 * IN });
+  assert.equal(c.length, 1);
+  assert.equal(c[0].n, centre.strips.length);
+  // Brick counts its shift.
+  const brick = engine.normalizeDesign({ ...checker(), pattern: 'brick' });
+  for (const o of engine.fitOptions(brick, sp, { width: 12 * IN, length: 15 * IN })) assert.ok(Math.abs(o.board.width - 12 * IN) < 0.25 * IN, `brick ${o.n}`);
+});
+
+test('edge details are kept and cleaned up', () => {
+  const d = engine.normalizeDesign({ ...engine.newDesign('x'), details: { groove: true, bevel: 12.7, handles: 'holes' } });
+  assert.equal(d.details.groove, true);
+  assert.equal(d.details.bevel, 12.7);
+  assert.equal(d.details.handles, 'holes');
+  near(d.details.grooveInset, 0.75 * IN, 'default inset');
+  assert.equal(engine.normalizeDesign({ ...d, details: { handles: 'nope' } }).details.handles, 'none');
+  assert.equal(engine.compute(d, species.defaults()).details.groove, true);
+});

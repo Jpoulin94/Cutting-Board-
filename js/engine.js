@@ -42,6 +42,15 @@
     alternate: false, // mirror the angle on every other strip
   };
 
+  // Finishing touches that only change how the board looks in the preview.
+  const DEFAULT_DETAILS = {
+    groove: false,
+    grooveInset: IN * 0.75, // from the edge to the groove
+    grooveWidth: IN * 0.375,
+    bevel: 0, // size of the 45\u00b0 chamfer on the top edges; 0 for none
+    handles: 'none', // 'none' | 'grips' (finger grips under the ends) | 'holes' (hand holes through)
+  };
+
   let counter = 0;
   function uid(prefix) {
     counter += 1;
@@ -70,6 +79,7 @@
       ],
       rowPlan: ['pA', 'pB', 'pA', 'pA', 'pB', 'pA', 'pA', 'pB', 'pA'].map((panel, i) => ({ panel, flip: i % 2 === 1 })),
       accent: { ...DEFAULT_ACCENT },
+      details: { ...DEFAULT_DETAILS },
       settings: { ...DEFAULT_SETTINGS, ...settings },
     };
   }
@@ -129,6 +139,14 @@
       species: typeof a.species === 'string' && a.species ? a.species : 'contrast',
       on: typeof a.on === 'string' && a.on ? a.on : 'all',
       alternate: !!a.alternate,
+    };
+    const x = d.details && typeof d.details === 'object' ? d.details : {};
+    out.details = {
+      groove: !!x.groove,
+      grooveInset: pos(x.grooveInset, DEFAULT_DETAILS.grooveInset),
+      grooveWidth: pos(x.grooveWidth, DEFAULT_DETAILS.grooveWidth),
+      bevel: nonneg(x.bevel, 0),
+      handles: ['grips', 'holes'].includes(x.handles) ? x.handles : 'none',
     };
     const s = d.settings || {};
     for (const k of Object.keys(DEFAULT_SETTINGS)) out.settings[k] = nonneg(s[k], DEFAULT_SETTINGS[k]);
@@ -487,6 +505,7 @@
     return {
       pattern: d.pattern,
       grain: d.grain || 'matched',
+      details: d.details || { ...DEFAULT_DETAILS },
       method: (total.angleRips ? 'Before glue-up 1, rip each accented stick at the angle, glue in its accent strip and glue it back together. ' : '') + g.method,
       accent: total.angleRips ? A : null,
       rows: g.rows.map((r) => ({ ...r, name: panelById[r.panel].name, thickness: panelById[r.panel].thickness })),
@@ -506,5 +525,62 @@
     };
   }
 
-  CB.engine = { IN, PATTERNS, DEFAULT_SETTINGS, DEFAULT_ACCENT, accentBand, chord, newDesign, normalizeDesign, generate, compute, roughFor, uid, alternate };
+  // Strip fitter: ways to reach a finished size. Every board measurement is
+  // linear in the strip widths and row depths, so each option is measured at
+  // one scale with compute(), then scaled and rounded to a sensible step.
+  function fitOptions(d, speciesList, t) {
+    const step = t.step || IN / 16;
+    const rnd = (v) => Math.max(step, Math.round(v / step) * step);
+    const measure = (x) => compute(normalizeDesign(x), speciesList).board;
+    const clone = () => JSON.parse(JSON.stringify(d));
+    if (!(t.width > 0) || !(t.length > 0)) return [];
+
+    if (d.pattern === 'plaid') {
+      const x = clone();
+      const b = measure(x);
+      const kw = t.width / b.width;
+      const kl = t.length / b.length;
+      x.panels.forEach((p) => {
+        p.strips.forEach((st) => (st.width = rnd(st.width * kw)));
+        p.thickness = rnd(p.thickness * kl);
+      });
+      return [{ design: x, n: null, rows: x.rowPlan.length, board: measure(x), keep: true }];
+    }
+
+    const cur = d.strips;
+    const n0 = cur.length;
+    const same = (a, b) => a.species === b.species && Math.abs(a.width - b.width) < 1e-6 && (a.rot || 0) === (b.rot || 0);
+    let period = 0;
+    for (let p = 1; p * 2 <= n0 && !period; p++) if (cur.every((st, i) => same(st, cur[i % p]))) period = p;
+    const uniform = cur.every((st) => Math.abs(st.width - cur[0].width) < 1e-6);
+    const square = t.square !== false && uniform && Math.abs(d.rowDepth - cur[0].width) < 1e-6;
+    const avg = cur.reduce((a, st) => a + st.width, 0) / n0;
+    const tw = t.stripWidth > 0 ? t.stripWidth : avg;
+    const counts = new Set([n0]);
+    if (period) {
+      const nt = Math.round(t.width / tw);
+      for (const n of [nt - 1, nt, nt + 1]) if (n >= 2 && n <= 60) counts.add(n);
+    }
+
+    const out = [];
+    for (const n of [...counts].sort((a, b) => a - b)) {
+      const x = clone();
+      x.strips = Array.from({ length: n }, (_, i) => ({ ...cur[period ? i % period : i] }));
+      x.rows = 2; // two rows, so a brick shift is counted
+      const k = t.width / measure(x).width;
+      x.strips.forEach((st) => (st.width = rnd(st.width * k)));
+      if (square) x.rowDepth = x.strips[0].width;
+      x.rows = Math.max(1, Math.round(t.length / (square ? x.rowDepth : d.rowDepth)));
+      if (!square) x.rowDepth = rnd(t.length / x.rows);
+      out.push({ design: x, n, rows: x.rows, stripWidth: uniform ? x.strips[0].width : null, rowDepth: x.rowDepth, board: measure(x), keep: n === n0 });
+    }
+    // Closest to the size asked for first.
+    const off = (o) => Math.abs(o.board.width - t.width) + Math.abs(o.board.length - t.length);
+    let best = out[0];
+    for (const o of out) if (off(o) < off(best) - 1e-6) best = o;
+    best.best = true;
+    return out;
+  }
+
+  CB.engine = { IN, PATTERNS, DEFAULT_SETTINGS, DEFAULT_ACCENT, DEFAULT_DETAILS, fitOptions, accentBand, chord, newDesign, normalizeDesign, generate, compute, roughFor, uid, alternate };
 })(typeof window !== 'undefined' ? window : globalThis);
