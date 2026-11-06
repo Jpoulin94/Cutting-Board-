@@ -671,6 +671,41 @@ table.t tfoot td {
   margin: 4px 0 0;
 }
 
+/* Stock designs */
+.stock-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+  max-height: 64vh;
+  overflow-y: auto;
+  width: min(880px, calc(100vw - 64px));
+}
+.stock-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  padding: 10px;
+  border-radius: var(--radius);
+}
+.stock-card svg {
+  width: 100%;
+  height: 130px;
+  margin-bottom: 4px;
+}
+.stock-card small {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.stock-card span {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.stock-card:hover {
+  border-color: var(--accent);
+}
+
 /* Dialog */
 dialog {
   border: none;

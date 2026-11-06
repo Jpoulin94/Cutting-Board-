@@ -125,3 +125,15 @@ test('normalizeDesign repairs bad input', () => {
   assert.equal(d.rowPlan.length, 1);
   assert.throws(() => engine.normalizeDesign(null));
 });
+
+test('every stock design builds a board with a cut list', () => {
+  const { presets } = require('./load');
+  for (const p of presets.PRESETS) {
+    const d = presets.make(p, engine.DEFAULT_SETTINGS);
+    const r = engine.compute(d, species.defaults());
+    assert.ok(r.board.width > 0 && r.board.length > 0, p.name);
+    assert.ok(r.blocks.length > 0 && r.panels.length > 0, p.name);
+    assert.deepEqual(r.warnings.filter((w) => w.includes('different widths')), [], `${p.name} panels differ in width`);
+    assert.equal(d.pattern, p.design.pattern, p.name);
+  }
+});

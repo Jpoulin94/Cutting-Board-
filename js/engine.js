@@ -154,7 +154,7 @@
         notes.push('Odd strip count: this uses two panels. Use an even count to make it from one panel.');
       }
     } else if (d.pattern === 'brick') {
-      const shift = d.brickShift * (sum(strips.map((s) => s.width)) / strips.length);
+      const shift = d.brickShift * Math.max(...strips.map((s) => s.width));
       for (let r = 0; r < d.rows; r++) rows.push({ panel: 'A', flip: d.brickFlip && r % 2 === 1, offset: r % 2 ? shift : 0 });
       method = `Crosscut the panel, then slide every other slice sideways by the brick shift${d.brickFlip ? ' and flip it end for end' : ''}. Trim the ragged edges after glue-up.`;
     }

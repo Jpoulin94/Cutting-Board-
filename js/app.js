@@ -184,7 +184,7 @@
     const widths = d.strips.map((s) => s.width);
     const uniform = widths.every((w) => Math.abs(w - widths[0]) < 1e-6);
 
-    let html = `<section class="section"><h2>Pattern</h2>
+    let html = `<section class="section"><h2>Pattern <button class="small" data-act="stock">Stock designs</button></h2>
       <div class="patterns">${Object.entries(engine.PATTERNS)
         .map(([k, p]) => `<button data-pattern="${k}" aria-pressed="${d.pattern === k}">${patternIcon(k)}${esc(p.label)}</button>`)
         .join('')}</div>
@@ -205,7 +205,7 @@
           `<div class="inp"><select data-brick-shift>${opts
             .map((o, i) => `<option value="${o}"${Math.abs(o - d.brickShift) < 0.01 ? ' selected' : ''}>${labels[i]} strip</option>`)
             .join('')}</select></div>`,
-          'How far every other row slides'
+          'Part of the widest strip that every other row slides'
         );
         html += `<label class="check"><input type="checkbox" data-brick-flip${d.brickFlip ? ' checked' : ''}/> Also flip the shifted rows end for end</label>`;
       }
@@ -469,6 +469,8 @@
         return update();
       case 'species':
         return openSpecies();
+      case 'stock':
+        return openStock();
       case 'sheet':
         return openSheet();
     }
@@ -563,6 +565,35 @@
     }
   }
 
+  async function openStock() {
+    const settings = { ...engine.DEFAULT_SETTINGS, ...(prefs.defaults || {}) };
+    const cards = CB.presets.PRESETS.map((p, i) => {
+      const d = CB.presets.make(p, settings);
+      const r = engine.compute(d, speciesList);
+      const code = sheet.codes(speciesList, []);
+      return `<button type="button" class="stock-card" data-stock="${i}">
+        ${sheet.boardSvg(r, speciesList, code, 150).replace(/<text[^>]*>[^<]*<\/text>/g, '')}
+        <b>${esc(p.name)}</b>
+        <small>${fmt(r.board.width)} × ${fmt(r.board.length)} · ${esc(engine.PATTERNS[d.pattern].label)}</small>
+        <span>${esc(p.blurb)}</span>
+      </button>`;
+    }).join('');
+    let chosen = null;
+    await dialog('Stock designs', `<p class="muted" style="margin:0 0 12px">Pick one to start a new board. Your kerf and allowance settings carry over, and you can change anything after.</p><div class="stock-grid">${cards}</div>`, [{ label: 'Close', value: 'close', cls: 'ghost' }], (dlg) => {
+      $('.stock-grid', dlg).onclick = (e) => {
+        const b = e.target.closest('[data-stock]');
+        if (!b) return;
+        chosen = CB.presets.PRESETS[Number(b.dataset.stock)];
+        dlg.close('pick');
+      };
+    });
+    if (!chosen) return;
+    if (!(await guardUnsaved())) return;
+    load(CB.presets.make(chosen, settings));
+    pristine = snapshot();
+    toast(`Started \u201c${chosen.name}\u201d. Save it to keep it.`);
+  }
+
   async function openSpecies() {
     let work = speciesList.map((s) => ({ ...s }));
     const used = new Set(result.panels.flatMap((p) => p.strips.map((s) => s.species)));
@@ -620,7 +651,8 @@
       if (!(await guardUnsaved())) return;
       load(freshDesign('Untitled board'));
       pristine = snapshot();
-    } else if (kind === 'open') openSaved();
+    } else if (kind === 'stock') openStock();
+    else if (kind === 'open') openSaved();
     else if (kind === 'duplicate') {
       design = engine.normalizeDesign({ ...JSON.parse(JSON.stringify(design)), id: engine.uid('bd'), name: `${design.name} copy` });
       storage.saveDesign(design);
