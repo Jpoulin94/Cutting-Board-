@@ -30,6 +30,18 @@
     waste: 15,
   };
 
+  // An accent strip glued into a lengthwise angled rip in each stick, so
+  // every square shows a thin line across it.
+  const DEFAULT_ACCENT = {
+    enabled: false,
+    angle: 60, // degrees from the board's width
+    offset: 0.2, // how far the line sits off centre, as a share of the strip width
+    thickness: IN / 8,
+    species: 'contrast', // or a species id
+    on: 'all', // or a species id: only strips of that wood get a line
+    alternate: false, // mirror the angle on every other strip
+  };
+
   let counter = 0;
   function uid(prefix) {
     counter += 1;
@@ -57,6 +69,7 @@
         { id: 'pB', name: 'B', thickness: 0.75 * IN, strips: alternate(8, 'sp_cherry', 'sp_maple', w) },
       ],
       rowPlan: ['pA', 'pB', 'pA', 'pA', 'pB', 'pA', 'pA', 'pB', 'pA'].map((panel, i) => ({ panel, flip: i % 2 === 1 })),
+      accent: { ...DEFAULT_ACCENT },
       settings: { ...DEFAULT_SETTINGS, ...settings },
     };
   }
@@ -100,6 +113,16 @@
       .filter((r) => r && ids.has(r.panel))
       .map((r) => ({ panel: r.panel, flip: !!r.flip }));
     if (!out.rowPlan.length) out.rowPlan = [{ panel: out.panels[0].id, flip: false }];
+    const a = d.accent && typeof d.accent === 'object' ? d.accent : {};
+    out.accent = {
+      enabled: !!a.enabled,
+      angle: Math.min(80, Math.max(10, num(a.angle, DEFAULT_ACCENT.angle))),
+      offset: Math.min(0.45, Math.max(-0.45, num(a.offset, DEFAULT_ACCENT.offset))),
+      thickness: pos(a.thickness, DEFAULT_ACCENT.thickness),
+      species: typeof a.species === 'string' && a.species ? a.species : 'contrast',
+      on: typeof a.on === 'string' && a.on ? a.on : 'all',
+      alternate: !!a.alternate,
+    };
     const s = d.settings || {};
     for (const k of Object.keys(DEFAULT_SETTINGS)) out.settings[k] = nonneg(s[k], DEFAULT_SETTINGS[k]);
     return out;
@@ -184,6 +207,58 @@
     return { quarters: layers * 8, inches: layers * 2, laminate: true, layers };
   }
 
+  // Keeps the part of a polygon where nx*x + ny*y <= c.
+  function clip(poly, nx, ny, c) {
+    const out = [];
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i];
+      const b = poly[(i + 1) % poly.length];
+      const da = nx * a[0] + ny * a[1] - c;
+      const db = nx * b[0] + ny * b[1] - c;
+      if (da <= 0) out.push(a);
+      if ((da < 0 && db > 0) || (da > 0 && db < 0)) {
+        const t = da / (da - db);
+        out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+      }
+    }
+    return out;
+  }
+
+  // The accent band across a w x d stick end, in the stick's own coordinates.
+  function accentLine(w, d, A, mirrored) {
+    const th = (A.angle * Math.PI) / 180;
+    let cx = w / 2 + A.offset * w;
+    let dx = Math.cos(th);
+    const dy = -Math.sin(th);
+    if (mirrored) {
+      cx = w - cx;
+      dx = -dx;
+    }
+    return { cx, cy: d / 2, dx, dy, nx: -dy, ny: dx };
+  }
+  function accentBand(w, d, A, mirrored) {
+    const L = accentLine(w, d, A, mirrored);
+    const h = A.thickness / 2;
+    const c0 = L.nx * L.cx + L.ny * L.cy;
+    let poly = [[0, 0], [w, 0], [w, d], [0, d]];
+    poly = clip(poly, L.nx, L.ny, c0 + h);
+    poly = clip(poly, -L.nx, -L.ny, -(c0 - h));
+    return poly;
+  }
+  // Length of the cut line across the stick end.
+  function chord(w, d, A) {
+    const L = accentLine(w, d, A, false);
+    let t0 = -Infinity;
+    let t1 = Infinity;
+    for (const [p, q] of [[-L.dx, L.cx], [L.dx, w - L.cx], [-L.dy, L.cy], [L.dy, d - L.cy]]) {
+      if (Math.abs(p) < 1e-12) continue;
+      const t = q / p;
+      if (p < 0) t0 = Math.max(t0, t);
+      else t1 = Math.min(t1, t);
+    }
+    return Math.max(0, t1 - t0);
+  }
+
   function compute(design, speciesList) {
     const d = design;
     const S = d.settings;
@@ -208,6 +283,21 @@
     const boardWidth = Math.max(0, end - start);
     const boardLength = sum(g.rows.map((r) => panelById[r.panel].thickness));
 
+    // Angled accents: which sticks get one, and in which wood.
+    const A = d.accent || DEFAULT_ACCENT;
+    const counts = {};
+    for (const p of g.panels) for (const s of p.strips) counts[s.species] = (counts[s.species] || 0) + 1;
+    const contrast = (sp) => {
+      const others = Object.entries(counts).filter(([k]) => k !== sp).sort((a, b) => b[1] - a[1]);
+      return others.length ? others[0][0] : sp === 'sp_walnut' ? 'sp_maple' : 'sp_walnut';
+    };
+    for (const p of g.panels) {
+      p.strips = p.strips.map((s, i) => {
+        if (!A.enabled || (A.on !== 'all' && A.on !== s.species)) return { ...s, accent: null };
+        return { ...s, accent: { species: A.species === 'contrast' ? contrast(s.species) : A.species, mirrored: A.alternate && i % 2 === 1 } };
+      });
+    }
+
     // Blocks for the preview, clipped to the finished footprint.
     const blocks = [];
     let y = 0;
@@ -218,7 +308,20 @@
       seq.forEach((s) => {
         const x0 = Math.max(x, start);
         const x1 = Math.min(x + s.width, end);
-        if (x1 - x0 > 1e-6) blocks.push({ x: x0 - start, y, w: x1 - x0, d: p.thickness, species: s.species, ref: s.ref, row: ri, panel: p.id });
+        if (x1 - x0 > 1e-6) {
+          const b = { x: x0 - start, y, w: x1 - x0, d: p.thickness, species: s.species, ref: s.ref, row: ri, panel: p.id };
+          if (s.accent) {
+            // A flipped slice is turned end for end in place, so its
+            // cross-section is rotated half a turn.
+            let poly = accentBand(s.width, p.thickness, A, s.accent.mirrored);
+            if (r.flip) poly = poly.map(([u, v]) => [s.width - u, p.thickness - v]);
+            poly = poly.map(([u, v]) => [x + u - start, y + v]);
+            poly = clip(poly, 1, 0, x1 - start);
+            poly = clip(poly, -1, 0, -(x0 - start));
+            if (poly.length >= 3) b.accent = { species: s.accent.species, poly };
+          }
+          blocks.push(b);
+        }
         x += s.width;
       });
       y += p.thickness;
@@ -235,12 +338,31 @@
         rip: s.width + (i === 0 || i === n - 1 ? S.edgeTrim : 0) + (n === 1 && i === 0 ? S.edgeTrim : 0),
       }));
       const length = S.endTrim + slices * (sliceLength + S.kerfCross);
+      // The angled rip removes a kerf and the accent puts some back. If the
+      // accent is thinner, start those sticks oversize by the difference.
+      const accented = strips.filter((s) => s.accent);
+      const th = (A.angle * Math.PI) / 180;
+      const lost = Math.max(0, S.kerfRip - A.thickness);
+      let accentPrep = null;
+      if (accented.length) {
+        for (const s of accented) s.rip += lost * Math.sin(th);
+        const chords = accented.map((s) => chord(s.width, p.thickness, A));
+        accentPrep = {
+          sticks: accented.length,
+          extraWidth: lost * Math.sin(th),
+          extraThickness: lost * Math.cos(th),
+          gain: A.thickness - S.kerfRip,
+          stripWidth: Math.max(...chords) + IN / 8,
+          strips: accented.map((s) => s.accent.species),
+        };
+      }
       panels.push({
         id: p.id,
         name: p.name,
         thickness: p.thickness,
-        milled: p.thickness + S.panelPlane,
+        milled: p.thickness + S.panelPlane + (accentPrep ? accentPrep.extraThickness : 0),
         strips,
+        accentPrep,
         width: sum(strips.map((s) => s.rip)),
         designWidth: width(p),
         length,
@@ -261,6 +383,15 @@
         let rip = e.rips.find((x) => x.key === key);
         if (!rip) e.rips.push((rip = { key, panel: p.name, width: s.rip, length: p.length, thickness: p.milled, count: 0 }));
         rip.count += 1;
+      }
+    }
+    for (const p of panels) {
+      if (!p.accentPrep) continue;
+      const per = {};
+      for (const sp of p.accentPrep.strips) per[sp] = (per[sp] || 0) + 1;
+      for (const [sp, count] of Object.entries(per)) {
+        const e = (spMap[sp] = spMap[sp] || { species: sp, rips: [], pieces: [] });
+        e.rips.push({ key: `${p.id}|accent`, panel: `${p.name} accent`, accent: true, width: A.thickness, length: p.length, thickness: p.accentPrep.stripWidth + S.panelPlane, count });
       }
     }
     const lumber = [];
@@ -303,14 +434,17 @@
       cuts: sum(panels.map((p) => p.cuts)),
       crossKerf: sum(panels.map((p) => p.crossKerf)),
       ripKerf: sum(panels.map((p) => p.ripKerf)),
-      rips: sum(panels.map((p) => p.strips.length)),
+      rips: sum(panels.map((p) => p.strips.length)) + sum(panels.map((p) => (p.accentPrep ? p.accentPrep.sticks : 0))),
+      angleRips: sum(panels.map((p) => (p.accentPrep ? p.accentPrep.sticks : 0))),
     };
+    total.ripKerf += total.angleRips * S.kerfRip;
 
     if (boardWidth <= 0) warnings.push('The rows don’t overlap, so there’s no board left after trimming.');
 
     return {
       pattern: d.pattern,
-      method: g.method,
+      method: (total.angleRips ? 'Before glue-up 1, rip each accented stick at the angle, glue in its accent strip and glue it back together. ' : '') + g.method,
+      accent: total.angleRips ? A : null,
       rows: g.rows.map((r) => ({ ...r, name: panelById[r.panel].name, thickness: panelById[r.panel].thickness })),
       shift: d.pattern === 'brick' ? g.rows[1] && g.rows[1].offset : 0,
       board: {
@@ -328,5 +462,5 @@
     };
   }
 
-  CB.engine = { IN, PATTERNS, DEFAULT_SETTINGS, newDesign, normalizeDesign, generate, compute, roughFor, uid, alternate };
+  CB.engine = { IN, PATTERNS, DEFAULT_SETTINGS, DEFAULT_ACCENT, accentBand, chord, newDesign, normalizeDesign, generate, compute, roughFor, uid, alternate };
 })(typeof window !== 'undefined' ? window : globalThis);

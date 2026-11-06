@@ -12,7 +12,9 @@
     R: 'sp_padauk',
     O: 'sp_whiteoak',
     Y: 'sp_yellowheart',
+    Z: 'sp_zebrawood',
   };
+  const accent = (species, alternate = false) => ({ enabled: true, angle: 60, offset: 0.2, thickness: IN / 8, species, on: 'all', alternate });
   // "M1.5 W.25" -> strips. Widths in inches.
   const strips = (text) =>
     text
@@ -23,6 +25,16 @@
   const plan = (text, ids) => [...text].map((ch) => ({ panel: ids[ch], flip: false }));
 
   const PRESETS = [
+    {
+      name: 'Walnut with purpleheart accents',
+      blurb: 'Walnut squares, each crossed by a purpleheart line at 60\u00b0.',
+      design: { pattern: 'stripes', strips: strips(repeat('W1.5', 8)), rows: 10, rowDepth: 1.5 * IN, thickness: 1.5 * IN, accent: accent(SP.P) },
+    },
+    {
+      name: 'Zebrawood with purpleheart accents',
+      blurb: 'Zebrawood squares with purpleheart lines that alternate direction.',
+      design: { pattern: 'stripes', strips: strips(repeat('Z1.5', 8)), rows: 10, rowDepth: 1.5 * IN, thickness: 1.5 * IN, accent: accent(SP.P, true) },
+    },
     {
       name: 'Classic checkerboard',
       blurb: 'Walnut and maple, 1-1/2" squares.',

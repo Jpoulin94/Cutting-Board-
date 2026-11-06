@@ -137,3 +137,41 @@ test('every stock design builds a board with a cut list', () => {
     assert.equal(d.pattern, p.design.pattern, p.name);
   }
 });
+
+test('angled accent: band area, lumber and kerf', () => {
+  const d = engine.newDesign('Accent');
+  d.accent = { ...engine.DEFAULT_ACCENT, enabled: true, angle: 60, offset: 0.2 };
+  const r = engine.compute(d, species.defaults());
+  const withAccent = r.blocks.filter((b) => b.accent);
+  assert.equal(withAccent.length, r.blocks.length);
+  // Contrasting wood by default.
+  const b = r.blocks.find((x) => x.species === 'sp_maple');
+  assert.equal(b.accent.species, 'sp_walnut');
+  // Band area = thickness x chord (the line doesn't reach a corner here).
+  const area = (poly) => Math.abs(poly.reduce((s, [x, y], i) => { const [x2, y2] = poly[(i + 1) % poly.length]; return s + x * y2 - x2 * y; }, 0)) / 2;
+  const chord = engine.chord(1.5 * IN, 1.5 * IN, d.accent);
+  assert.ok(Math.abs(area(b.accent.poly) / (chord * IN / 8) - 1) < 0.03, 'band area');
+  // A 1/8" accent fills a 1/8" kerf exactly, so strip sizes don't change.
+  near(r.panels[0].strips[1].rip, 1.5 * IN, 'rip unchanged');
+  assert.equal(r.total.angleRips, 8);
+  const walnut = r.lumber.find((l) => l.species === 'sp_walnut');
+  const acc = walnut.rips.find((x) => x.accent);
+  assert.equal(acc.count, 4);
+  near(acc.width, IN / 8, 'accent strip thickness');
+});
+
+test('a thinner accent starts the sticks oversize', () => {
+  const d = engine.newDesign('Accent');
+  d.accent = { ...engine.DEFAULT_ACCENT, enabled: true, angle: 90, offset: 0, thickness: IN / 16 };
+  const r = engine.compute(d, species.defaults());
+  near(r.panels[0].strips[1].rip, (1.5 + 1 / 16) * IN, 'extra width for a vertical line');
+});
+
+test('accent only on one wood, alternating direction', () => {
+  const d = engine.newDesign('Accent');
+  d.accent = { ...engine.DEFAULT_ACCENT, enabled: true, on: 'sp_maple', alternate: true, species: 'sp_padauk' };
+  const r = engine.compute(d, species.defaults());
+  assert.ok(r.blocks.filter((b) => b.species === 'sp_walnut').every((b) => !b.accent));
+  assert.ok(r.blocks.filter((b) => b.species === 'sp_maple').every((b) => b.accent && b.accent.species === 'sp_padauk'));
+  assert.equal(r.total.angleRips, 4);
+});

@@ -295,6 +295,15 @@
         poly(ctx, pts);
         ctx.fill();
         if (!this.fast) this.endGrain(ctx, affine, b, c0, rnd);
+        if (b.accent) {
+          const ac = col(b.accent.species);
+          ctx.fillStyle = rgb(ac);
+          poly(ctx, b.accent.poly.map(([x, y]) => proj(x, y, T)));
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+          ctx.lineWidth = 0.5;
+          ctx.stroke();
+        }
         this.hits.push({ poly: pts, block: b });
       }
       // Glue lines.

@@ -39,7 +39,10 @@
       .map((b) => {
         const sp = CB.species.byId(speciesList, b.species);
         const label = b.w * s > 14 && b.d * s > 12 ? `<text x="${(b.x + b.w / 2) * s}" y="${(b.y + b.d / 2) * s + 4}" fill="${textOn(sp.color)}">${esc(code[b.species] || '')}</text>` : '';
-        return `<rect x="${b.x * s}" y="${b.y * s}" width="${b.w * s}" height="${b.d * s}" fill="${sp.color}"/>${label}`;
+        const acc = b.accent
+          ? `<polygon points="${b.accent.poly.map(([x, y]) => `${x * s},${y * s}`).join(' ')}" fill="${CB.species.byId(speciesList, b.accent.species).color}" stroke="#000" stroke-width="0.3"/>`
+          : '';
+        return `<rect x="${b.x * s}" y="${b.y * s}" width="${b.w * s}" height="${b.d * s}" fill="${sp.color}" stroke="rgba(0,0,0,.25)" stroke-width="0.4"/>${acc}${b.accent ? '' : label}`;
       })
       .join('');
     return `<svg class="diagram" viewBox="-1 -1 ${W * s + 2} ${L * s + 2}" width="${W * s + 2}" height="${L * s + 2}" font-size="10" text-anchor="middle">${blocks}<rect x="0" y="0" width="${W * s}" height="${L * s}" fill="none" stroke="#000" stroke-width="1"/></svg>`;
@@ -84,6 +87,38 @@
     return `<svg class="diagram" viewBox="-1 -1 ${142 + shiftPx} ${y + 2}" width="${142 + shiftPx}" height="${y + 2}" font-size="10" text-anchor="middle">${items}</svg>`;
   }
 
+  function accentSection(r, speciesList, fmt) {
+    if (!r.accent) return '';
+    const A = r.accent;
+    const S = r.settings;
+    const box = '<span class="box"></span>';
+    const rows = r.panels
+      .filter((p) => p.accentPrep)
+      .map((p) => {
+        const per = {};
+        for (const sp of p.accentPrep.strips) per[sp] = (per[sp] || 0) + 1;
+        const list = Object.entries(per).map(([sp, n]) => `${n} \u00d7 ${esc(CB.species.byId(speciesList, sp).name)}`).join(', ');
+        return `<tr><td>${box}</td><td>${esc(p.name)}</td><td>${p.accentPrep.sticks}</td><td>${list}</td><td>${fmt(A.thickness)} \u00d7 ${fmt(p.accentPrep.stripWidth)} \u00d7 ${fmt(p.length)}</td></tr>`;
+      })
+      .join('');
+    const gain = A.thickness - S.kerfRip;
+    const note =
+      Math.abs(gain) < 0.01
+        ? `The ${fmt(A.thickness)} accent fills the ${fmt(S.kerfRip)} kerf exactly, so each stick keeps its size.`
+        : gain < 0
+        ? `The accent is ${fmt(-gain)} thinner than the kerf, so those sticks are listed oversize to make up for it.`
+        : `The accent is ${fmt(gain)} thicker than the kerf, so joint the sticks back to size after gluing.`;
+    return `<section class="keep">
+        <h2>Before glue-up 1: angled accents</h2>
+        <p>Rip each stick lengthwise at <b>${A.angle}\u00b0</b> from its face, ${Math.abs(A.offset) > 0.01 ? `crossing ${Math.round(Math.abs(A.offset) * 100)}% off centre` : 'through the centre'}${A.alternate ? ', mirroring the angle on every other stick' : ''}. Glue the accent strip between the two halves, keep the ends lined up, and let it cure before glue-up 1.</p>
+        <table class="grid">
+          <thead><tr><th></th><th>Panel</th><th>Sticks to rip</th><th>Accent strips</th><th>Accent size (thick \u00d7 wide \u00d7 long)</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <p class="muted">${note}</p>
+      </section>`;
+  }
+
   function money(v) {
     return v == null ? '–' : `$${v.toFixed(2)}`;
   }
@@ -91,7 +126,7 @@
   function html(design, r, speciesList, prefs) {
     const fmt = (mm) => CB.units.format(mm, prefs);
     const S = r.settings;
-    const used = [...new Set(r.panels.flatMap((p) => p.strips.map((s) => s.species)))];
+    const used = [...new Set(r.panels.flatMap((p) => p.strips.map((s) => s.species)).concat(r.blocks.filter((b) => b.accent).map((b) => b.accent.species)))];
     const code = codes(speciesList, used);
     const key = used
       .map((id) => {
@@ -194,6 +229,7 @@
         </table>
       </section>
 
+      ${accentSection(r, speciesList, fmt)}
       <section>
         <h2>3. Glue-up 1: strip panels</h2>
         ${panelBlocks}

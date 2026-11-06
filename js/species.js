@@ -24,6 +24,7 @@
       ['sp_padauk', 'Padauk', '#c4461f'],
       ['sp_whiteoak', 'White oak', '#c8a679'],
       ['sp_yellowheart', 'Yellowheart', '#e3b53b'],
+      ['sp_zebrawood', 'Zebrawood', '#c9a46c'],
     ].map(([id, name, color]) => ({ id, name, color, price: null, supplier: '', lastBought: '', notes: '' }));
   }
 

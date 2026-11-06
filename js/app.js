@@ -245,6 +245,24 @@
       </section>`;
     }
 
+    const A = d.accent;
+    const usedSp = [...new Set((plaid ? d.panels.flatMap((p) => p.strips) : d.strips).map((x) => x.species))];
+    const spOpt = (v, list) => list.map((id) => `<option value="${id}"${id === v ? ' selected' : ''}>${esc(CB.species.byId(speciesList, id).name)}</option>`).join('');
+    html += `<section class="section"><h2>Angled accent</h2>
+      <label class="check"><input type="checkbox" data-acc="enabled"${A.enabled ? ' checked' : ''}/> Glue a thin accent line across each square</label>
+      ${
+        A.enabled
+          ? `${field('Accent wood', `<div class="inp"><select data-acc="species"><option value="contrast"${A.species === 'contrast' ? ' selected' : ''}>Contrasting wood</option>${spOpt(A.species, speciesList.map((x) => x.id))}</select></div>`)}
+        ${field('Accent thickness', lenInput('acc:thickness', A.thickness), 'Same as the kerf keeps sizes unchanged')}
+        ${field('Angle', numInput('acc:angle', A.angle, { min: 10, max: 80, suffix: '\u00b0' }), 'From the board\u2019s width')}
+        ${field('Off centre', numInput('acc:offset', Math.round(A.offset * 100), { min: -45, max: 45, suffix: '%' }), 'Of the strip width; 0 is centred')}
+        ${field('Squares', `<div class="inp"><select data-acc="on"><option value="all"${A.on === 'all' ? ' selected' : ''}>All</option>${spOpt(A.on, usedSp)}</select></div>`, 'Which wood gets a line')}
+        ${field('Direction', `<div class="inp"><select data-acc="alternate"><option value="0"${!A.alternate ? ' selected' : ''}>All the same</option><option value="1"${A.alternate ? ' selected' : ''}>Alternate strips</option></select></div>`)}
+        <p class="blurb">Each stick is ripped lengthwise at this angle and glued back together with the accent between, before glue-up 1.</p>`
+          : ''
+      }
+    </section>`;
+
     html += `<details class="section" ${prefs.allowOpen ? 'open' : ''} data-allow><summary>Kerf and allowances</summary>
       ${field('Rip kerf', lenInput('set:kerfRip', S.kerfRip), 'Blade width for ripping strips')}
       ${field('Crosscut kerf', lenInput('set:kerfCross', S.kerfCross), 'Blade width for the final crosscuts')}
@@ -302,7 +320,7 @@
           <div class="stat"><small>Lumber to buy</small><b>${r.total.bfBuy.toFixed(2)} bf</b></div>
           <div class="stat"><small>Cost</small><b>${money(r.total.cost)}</b>${r.total.unpriced.length ? '<small>some prices missing</small>' : ''}</div>
         </div>
-        <p class="kerf-line">${kerfLines}<br>${r.total.rips} rips × ${fmt(S.kerfRip)} = ${fmt(r.total.ripKerf)} of width lost</p>
+        <p class="kerf-line">${kerfLines}<br>${r.total.rips} rips × ${fmt(S.kerfRip)} = ${fmt(r.total.ripKerf)} of width lost${r.total.angleRips ? ` (including ${r.total.angleRips} angled rips for accents)` : ''}</p>
         ${r.warnings.map((w) => `<p class="warn">${esc(w)}</p>`).join('')}
       </section>
       <section class="section"><h2>Lumber needed</h2>
@@ -370,6 +388,7 @@
           const [, ctx, i] = key.split(':');
           stripsOf(ctx)[Number(i)].width = v;
         } else if (key === 'pickW') refStrip(selected).width = v;
+        else if (key === 'acc:thickness') d.accent.thickness = v;
       });
       return;
     }
@@ -380,6 +399,8 @@
         if (ds.num === 'stripCount') resize(d.strips, Math.max(1, Math.min(60, Math.round(n))));
         else if (ds.num === 'rows') d.rows = Math.max(1, Math.min(80, Math.round(n)));
         else if (ds.num === 'set:waste') d.settings.waste = Math.max(0, Math.min(100, n));
+        else if (ds.num === 'acc:angle') d.accent.angle = n;
+        else if (ds.num === 'acc:offset') d.accent.offset = n / 100;
       });
       return;
     }
@@ -387,6 +408,13 @@
       const [ctx, i] = ds.sp.split(':');
       commit(() => (stripsOf(ctx)[Number(i)].species = t.value));
       return;
+    }
+    if (ds.acc !== undefined) {
+      return commit((d) => {
+        if (ds.acc === 'enabled') d.accent.enabled = t.checked;
+        else if (ds.acc === 'alternate') d.accent.alternate = t.value === '1';
+        else d.accent[ds.acc] = t.value;
+      });
     }
     if (ds.brickShift !== undefined) return commit((d) => (d.brickShift = Number(t.value)));
     if (ds.brickFlip !== undefined) return commit((d) => (d.brickFlip = t.checked));
@@ -589,7 +617,14 @@
     });
     if (!chosen) return;
     if (!(await guardUnsaved())) return;
-    load(CB.presets.make(chosen, settings));
+    const made = CB.presets.make(chosen, settings);
+    const needed = [...new Set([...made.strips, ...made.panels.flatMap((p) => p.strips)].map((x) => x.species).concat(made.accent.enabled ? [made.accent.species] : []))];
+    const missing = CB.species.defaults().filter((x) => needed.includes(x.id) && !speciesList.some((y) => y.id === x.id));
+    if (missing.length) {
+      speciesList = speciesList.concat(missing);
+      storage.saveSpecies(speciesList);
+    }
+    load(made);
     pristine = snapshot();
     toast(`Started \u201c${chosen.name}\u201d. Save it to keep it.`);
   }
