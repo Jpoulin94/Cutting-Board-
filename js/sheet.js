@@ -197,6 +197,7 @@
     const steps = [];
     steps.push(`Square one end of each panel, then crosscut slices ${fmt(r.panels[0] ? r.panels[0].sliceLength : 0)} long. That's the board thickness of ${fmt(design.thickness)} plus ${fmt(S.flatten)} for flattening.`);
     steps.push('Number each slice in pencil on its top as you cut it, so the order matches the diagram.');
+    if (r.grain === 'matched') steps.unshift('Grain is matched: at glue-up 1, set every stick with its growth rings facing the same way (mark the same face of each stick before ripping), except sticks you\u2019re turning on purpose.');
     steps.push(esc(r.method));
 
     return `<article class="sheet">

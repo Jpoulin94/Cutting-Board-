@@ -241,6 +241,11 @@
         html += `<label class="check"><input type="checkbox" data-brick-flip${d.brickFlip ? ' checked' : ''}/> Also flip the shifted rows end for end</label>`;
       }
     }
+    html += field(
+      'Grain',
+      `<div class="inp"><select data-grain><option value="matched"${d.grain !== 'random' ? ' selected' : ''}>Matched</option><option value="random"${d.grain === 'random' ? ' selected' : ''}>Random</option></select></div>`,
+      'Matched: every stick faces the same way'
+    );
     html += `<div class="readout">Finished board: <b>${fmt(result.board.width)} × ${fmt(result.board.length)} × ${fmt(result.board.thickness)}</b></div></section>`;
 
     if (!plaid) {
@@ -451,6 +456,7 @@
       });
     }
     if (ds.brickShift !== undefined) return commit((d) => (d.brickShift = Number(t.value)));
+    if (ds.grain !== undefined) return commit((d) => (d.grain = t.value));
     if (ds.rowTurn !== undefined) return commit((d) => (d.rowTurn = t.checked));
     if (ds.brickFlip !== undefined) return commit((d) => (d.brickFlip = t.checked));
     if (ds.panelName !== undefined) return commit((d) => (d.panels.find((p) => p.id === ds.panelName).name = t.value.trim() || '?'));

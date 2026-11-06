@@ -217,3 +217,14 @@ test('checkerboard turning: turned squares alternate in both directions', () => 
   assert.notEqual(at(0, 0), at(1, 0));
   assert.equal(at(0, 0), at(1, 1));
 });
+
+test('grain defaults to matched and blocks know their stick', () => {
+  const d = engine.normalizeDesign(engine.newDesign('Grain'));
+  assert.equal(d.grain, 'matched');
+  const r = engine.compute(d, species.defaults());
+  assert.equal(r.grain, 'matched');
+  const b = r.blocks.find((x) => x.row === 1);
+  assert.equal(b.flip, true);
+  assert.match(b.stick, /^A:\d$/);
+  assert.equal(engine.normalizeDesign({ ...d, grain: 'random' }).grain, 'random');
+});

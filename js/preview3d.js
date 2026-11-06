@@ -292,7 +292,11 @@
       for (const b of r.blocks) {
         const pts = [proj(b.x, b.y, T), proj(b.x + b.w, b.y, T), proj(b.x + b.w, b.y + b.d, T), proj(b.x, b.y + b.d, T)];
         const c0 = col(b.species);
-        const rnd = rand(Math.round(b.x * 7 + b.y * 131 + 17));
+        const matched = r.grain === 'matched';
+        // Matched: every slice of a stick shows that stick's own grain,
+        // all sticks facing the same way. Random: each square on its own.
+        const rnd = matched ? rand(hashStr(b.stick) + 17) : rand(Math.round(b.x * 7 + b.y * 131 + 17));
+        b.turnRad = matched ? ((b.rot + (b.flip ? 180 : 0)) * Math.PI) / 180 : null;
         ctx.fillStyle = rgb(c0, 0.97 + rnd() * 0.07);
         poly(ctx, pts);
         ctx.fill();
@@ -342,8 +346,17 @@
     endGrain(ctx, affine, b, c0, rnd) {
       // Rings centred on a "pith" off one corner of the block.
       const size = Math.max(b.w, b.d);
-      const cx = b.x + (rnd() < 0.5 ? -0.6 : 1.6) * b.w * (0.6 + rnd() * 0.6);
-      const cy = b.y + (rnd() < 0.5 ? -0.5 : 1.5) * b.d * (0.6 + rnd() * 0.6);
+      let cx;
+      let cy;
+      if (b.turnRad != null) {
+        const ang = Math.PI / 2 + (rnd() - 0.5) * 0.5 + b.turnRad;
+        const dist = size * (0.9 + rnd() * 0.5);
+        cx = b.sx + b.sw / 2 + Math.cos(ang) * dist;
+        cy = b.y + b.d / 2 + Math.sin(ang) * dist;
+      } else {
+        cx = b.x + (rnd() < 0.5 ? -0.6 : 1.6) * b.w * (0.6 + rnd() * 0.6);
+        cy = b.y + (rnd() < 0.5 ? -0.5 : 1.5) * b.d * (0.6 + rnd() * 0.6);
+      }
       const near = Math.hypot(Math.max(b.x - cx, 0, cx - b.x - b.w), Math.max(b.y - cy, 0, cy - b.y - b.d));
       const far = Math.hypot(Math.max(Math.abs(cx - b.x), Math.abs(cx - b.x - b.w)), Math.max(Math.abs(cy - b.y), Math.abs(cy - b.y - b.d)));
       const gap = Math.max(1.4, size / 14) * (0.8 + rnd() * 0.5);
@@ -367,9 +380,10 @@
     // from a far-off pith, so they read as wavy, nearly parallel stripes.
     endStreaks(ctx, affine, b, sc, rnd) {
       const size = Math.max(b.w, b.d);
-      const ang = rnd() * Math.PI * 2;
+      const ang = b.turnRad != null ? Math.PI / 2 + (rnd() - 0.5) * 0.3 + b.turnRad : rnd() * Math.PI * 2;
       const far = size * (2.2 + rnd() * 2.5);
-      const cx = b.x + b.w / 2 + Math.cos(ang) * far;
+      const mx = b.turnRad != null ? b.sx + b.sw / 2 : b.x + b.w / 2;
+      const cx = mx + Math.cos(ang) * far;
       const cy = b.y + b.d / 2 + Math.sin(ang) * far;
       const r0 = far - size * 0.8;
       const r1 = far + size * 0.8;
@@ -459,6 +473,12 @@
       }
       ctx.restore();
     }
+  }
+
+  function hashStr(str) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619);
+    return h >>> 0;
   }
 
   function poly(ctx, pts) {

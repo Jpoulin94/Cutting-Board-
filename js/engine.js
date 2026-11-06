@@ -102,6 +102,7 @@
       brickShift: Math.min(0.9, Math.max(0.1, num(d.brickShift, 0.5))),
       brickFlip: !!d.brickFlip,
       rowTurn: !!d.rowTurn,
+      grain: d.grain === 'random' ? 'random' : 'matched',
       panels: Array.isArray(d.panels) && d.panels.length
         ? d.panels.map((p, i) => ({
             id: typeof p.id === 'string' ? p.id : uid('p'),
@@ -332,7 +333,23 @@
         const x0 = Math.max(x, start);
         const x1 = Math.min(x + s.width, end);
         if (x1 - x0 > 1e-6) {
-          const b = { x: x0 - start, y, w: x1 - x0, d: p.thickness, species: s.species, ref: s.ref, row: ri, panel: p.id };
+          const b = {
+            x: x0 - start,
+            y,
+            w: x1 - x0,
+            d: p.thickness,
+            species: s.species,
+            ref: s.ref,
+            row: ri,
+            panel: p.id,
+            // Where the whole stick sits, and how it's turned, for drawing
+            // its grain the same way on every slice.
+            stick: `${p.id}:${p.strips.indexOf(s)}`,
+            sx: x - start,
+            sw: s.width,
+            rot: s.rot || 0,
+            flip: !!r.flip,
+          };
           if (s.accent) {
             // A flipped slice is turned end for end in place, so its
             // cross-section is rotated half a turn.
@@ -469,6 +486,7 @@
 
     return {
       pattern: d.pattern,
+      grain: d.grain || 'matched',
       method: (total.angleRips ? 'Before glue-up 1, rip each accented stick at the angle, glue in its accent strip and glue it back together. ' : '') + g.method,
       accent: total.angleRips ? A : null,
       rows: g.rows.map((r) => ({ ...r, name: panelById[r.panel].name, thickness: panelById[r.panel].thickness })),
