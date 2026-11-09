@@ -95,7 +95,7 @@
       rowPlan: ['pA', 'pB', 'pA', 'pA', 'pB', 'pA', 'pA', 'pB', 'pA'].map((panel, i) => ({ panel, flip: i % 2 === 1 })),
       accent: { ...DEFAULT_ACCENT },
       details: { ...DEFAULT_DETAILS },
-      paint: { cells: {}, accents: {} },
+      paint: { cells: {}, accents: {}, turns: {} },
       tile: JSON.parse(JSON.stringify(DEFAULT_TILE)),
       settings: { ...DEFAULT_SETTINGS, ...settings },
     };
@@ -173,7 +173,14 @@
     out.tile.border = Math.min(out.tile.border, (out.tile.size * Math.sqrt(3)) / 2 * 0.5);
     const pt = paintOf(d);
     const clean = (o) => Object.fromEntries(Object.entries(o).filter(([k, v]) => typeof k === 'string' && typeof v === 'string' && v));
-    out.paint = { cells: clean(pt.cells), accents: clean(pt.accents) };
+    // Single pieces turned or flipped: { key: { rot, flip } }, overriding the stick.
+    const turns = {};
+    Object.entries(pt.turns).forEach(([k, v]) => {
+      if (!v || typeof v !== 'object') return;
+      const rot = ((Math.round(num(v.rot, 0) / 90) * 90) % 360 + 360) % 360;
+      turns[k] = { rot, flip: !!v.flip };
+    });
+    out.paint = { cells: clean(pt.cells), accents: clean(pt.accents), turns };
     const x = d.details && typeof d.details === 'object' ? d.details : {};
     out.details = {
       groove: !!x.groove,
@@ -340,7 +347,8 @@
     const p = d.paint && typeof d.paint === 'object' ? d.paint : {};
     const cells = p.cells && typeof p.cells === 'object' ? p.cells : {};
     const accents = p.accents && typeof p.accents === 'object' ? p.accents : {};
-    return { cells, accents, any: Object.keys(cells).length + Object.keys(accents).length > 0 };
+    const turns = p.turns && typeof p.turns === 'object' ? p.turns : {};
+    return { cells, accents, turns, any: Object.keys(cells).length + Object.keys(accents).length + Object.keys(turns).length > 0 };
   }
 
   function compute(design, speciesList) {
@@ -395,9 +403,16 @@
           const key = `${ri}:${i}`;
           const sp = paint.cells[key];
           const ac = paint.accents[key];
-          if (!sp && !(ac && st.accent)) return st;
+          const tn = paint.turns[key];
+          const turned = tn && (tn.rot !== (st.rot || 0) || tn.flip !== !!st.flip);
+          if (!sp && !(ac && st.accent) && !turned) return st;
           changed = true;
-          return { ...st, species: sp || st.species, accent: st.accent && ac ? { ...st.accent, species: ac } : st.accent };
+          const out = { ...st, species: sp || st.species, accent: st.accent && ac ? { ...st.accent, species: ac } : st.accent };
+          if (turned) {
+            out.rot = tn.rot;
+            out.flip = tn.flip;
+          }
+          return out;
         });
         if (!changed) {
           if (!variants.some((v) => v.id === base.id)) variants.push(base);
@@ -412,6 +427,18 @@
         }
         r.panel = v.id;
       });
+      // Number each panel's variants; if no row uses the panel itself any
+      // more, its first variant takes over its plain name.
+      const used = new Set(g.rows.map((r) => r.panel));
+      const live = variants.filter((v) => used.has(v.id));
+      live.forEach((v) => {
+        if (!v.base) return;
+        const own = used.has(v.base);
+        const n = live.filter((x) => x.base === v.base).indexOf(v) + (own ? 2 : 1);
+        v.name = n === 1 ? panelById[v.base].name : `${panelById[v.base].name}${n}`;
+      });
+      variants.length = 0;
+      variants.push(...live);
       g.panels = variants;
       panelById = Object.fromEntries(g.panels.map((p) => [p.id, p]));
     }

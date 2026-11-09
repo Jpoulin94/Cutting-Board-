@@ -372,3 +372,18 @@ test('a flipped stick mirrors its accent and keeps its flip', () => {
   const rel = (blk) => blk.accent.poly.map(([x, y]) => [Math.round(x - blk.sx), Math.round(y - blk.y)]).sort().join();
   assert.notEqual(rel(a), rel(f));
 });
+
+test('turning single pieces gives those rows their own panel', () => {
+  const d = engine.normalizeDesign({ ...engine.newDesign('t'), pattern: 'stripes', accent: { ...engine.DEFAULT_ACCENT, enabled: true } });
+  const r0 = engine.compute(d, sp);
+  const keys = r0.blocks.filter((b) => b.row === 1).map((b) => b.paintKey);
+  const turns = Object.fromEntries(keys.filter((_, i) => i % 2).map((k) => [k, { rot: 0, flip: true }]));
+  const n = engine.normalizeDesign({ ...d, paint: { cells: {}, accents: {}, turns } });
+  const r1 = engine.compute(n, sp);
+  assert.deepEqual(r1.panels.map((p) => p.name), ['A', 'A2']);
+  assert.ok(r1.blocks.find((b) => b.paintKey === keys[1]).mirror);
+  // every row turned the same way: one panel, still called A
+  const all = Object.fromEntries(r0.blocks.map((b) => [b.paintKey, { rot: 180, flip: false }]));
+  const r2 = engine.compute(engine.normalizeDesign({ ...d, paint: { turns: all } }), sp);
+  assert.deepEqual(r2.panels.map((p) => p.name), ['A']);
+});

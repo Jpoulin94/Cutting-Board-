@@ -31,7 +31,7 @@ Click any block in the 3D preview. Every block cut from that strip lights up, an
 
 **Paint bucket.** Press **Paint** on the 3D view, choose **Main** or **Accent** (on honeycomb, **Border**), pick a wood, then tap or drag over blocks. Each block you touch changes until you press **Done**. One drag is one undo. Painting single squares gives those rows their own strip panels (A2, A3…) in the cut list.
 
-**Turn and flip.** ↻ turns a stick on its long axis in quarter turns. ⇄ flips it end for end, which mirrors its end face, so you can make accent lines meet in chevrons. **Flip end for end … every other strip** does it in one go.
+**Rows and columns.** Press **Rows** (left of the board) or **Columns** (above it), then tap the board to pick lines, or use **All**, **1st, 3rd…** or **2nd, 4th…**. Choose **Whole row** or **Every other piece**, and with every other piece, **Start on 1st** or **Start on 2nd** (offset). Then **↻ 90°**, **↻ 180°**, **↺ 90°**, **⇄ Flip** (end for end, which mirrors the end face) or **Reset**. Rows whose pieces end up different get their own strip panels in the cut list.
 
 ### How sizes are worked out
 - Strip widths set the board's columns. The panel's thickness (row depth) sets each row.

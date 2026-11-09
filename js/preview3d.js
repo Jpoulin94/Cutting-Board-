@@ -183,7 +183,7 @@
     }
 
     hoverAt(e) {
-      const hit = this.paintMode ? null : this.pick(e);
+      const hit = this.paintMode || this.noHover ? null : this.pick(e);
       const b = hit ? hit.block : null;
       this.canvas.style.cursor = this.paintMode ? 'crosshair' : this.canvas.style.cursor;
       if (b !== this.hover) {
@@ -433,6 +433,10 @@
         ctx.lineWidth = width;
         ctx.stroke();
       };
+      if (this.marks) {
+        for (const b of r.blocks) if (this.marks.lines.has(b) && !this.marks.targets.has(b)) outline(b, 'rgba(255,255,255,0.55)', 1.2);
+        for (const b of r.blocks) if (this.marks.targets.has(b)) outline(b, accent, 2.4, 'rgba(255,255,255,0.18)');
+      }
       if (this.selected) {
         for (const b of r.blocks) if (sameRef(b.ref, this.selected)) outline(b, accent, 2.2, 'rgba(255,255,255,0.12)');
       }

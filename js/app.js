@@ -107,7 +107,12 @@
     renderLeft();
     renderRight();
     renderPicker();
+    const at = arrangeTargets();
+    preview.marks = arrange.axis ? { lines: new Set(at.lines), targets: new Set(at.targets) } : null;
+    preview.noHover = !!arrange.axis;
+    if (arrange.axis) preview.hover = null;
     preview.set(result, speciesList, selected);
+    renderArrange();
     $('#dims').textContent = `${fmt(result.board.width)} × ${fmt(result.board.length)} × ${fmt(result.board.thickness)}`;
     $('#designName').value = design.name;
     $$('.units button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.units === prefs.units)));
@@ -153,8 +158,7 @@
           <span class="n">${i + 1}</span>
           ${speciesSelect(`${ctx}:${i}`, s.species)}
           ${lenInput(`strip:${ctx}:${i}`, s.width, { label: `Strip ${i + 1} width` })}
-          <button class="turn${s.rot ? ' on' : ''}" data-act="turnStrip" data-ctx="${ctx}" data-i="${i}" title="Turn this stick on its long axis" aria-label="Turn strip ${i + 1}, now ${s.rot || 0} degrees">↻${s.rot || 0}°</button>
-          <button class="turn${s.flip ? ' on' : ''}" data-act="flipStrip" data-ctx="${ctx}" data-i="${i}" title="Flip this stick end for end, so its end face is mirrored" aria-label="Flip strip ${i + 1}, now ${s.flip ? 'flipped' : 'not flipped'}" aria-pressed="${!!s.flip}">⇄</button>
+          <span class="tags" title="${s.rot ? `Turned ${s.rot}°` : ''}${s.rot && s.flip ? ', ' : ''}${s.flip ? 'flipped end for end' : ''}">${s.rot ? `↻${s.rot}` : ''}${s.flip ? '⇄' : ''}</span>
           <button class="x" data-act="delStrip" data-ctx="${ctx}" data-i="${i}" title="Remove strip" aria-label="Remove strip ${i + 1}"${strips.length < 2 ? ' disabled' : ''}>✕</button>
         </div>`;
       })
@@ -165,17 +169,8 @@
     return `<div class="strip-list">${rows}</div>
       <div class="row-actions">
         <button class="small" data-act="addStrip" data-ctx="${ctx}">+ Strip</button>
-        <button class="small" data-act="reverse" data-ctx="${ctx}">Reverse order</button>
+        <button class="small" data-act="reverse" data-ctx="${ctx}">Reverse</button>
         <button class="small" data-act="mirror" data-ctx="${ctx}">Mirror</button>
-      </div>
-      <div class="fill">Turn
-        <select class="plain" data-turn-which="${ctx}"><option value="checker">in a checkerboard</option><option value="even">every other strip</option><option value="all">all strips</option></select> by
-        <select class="plain" data-turn-deg="${ctx}"><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option><option value="0">0° (reset)</option></select>
-        <button class="small" data-act="turnBulk" data-ctx="${ctx}">Apply</button>
-      </div>
-      <div class="fill">Flip end for end
-        <select class="plain" data-flip-which="${ctx}"><option value="even">every other strip</option><option value="all">all strips</option><option value="none">none (reset)</option></select>
-        <button class="small" data-act="flipBulk" data-ctx="${ctx}">Apply</button>
       </div>
       <div class="fill">Alternate
         <select class="plain" data-fill-a="${ctx}">${optsSel(a)}</select> and
@@ -304,7 +299,7 @@
         <p class="blurb">${cubes ? 'Light on top and darker on the sides makes the cubes pop. Tap a piece in the preview to change its wood.' : 'Tap a hexagon in the preview to change that wood everywhere.'}</p>
       </section>`;
     } else if (!plaid) {
-      html += `<section class="section"><h2>Strips <span class="muted">left to right</span></h2>${stripsHtml('main', d.strips)}</section>`;
+      html += `<section class="section"><h2>Strips <span class="muted">left to right</span></h2>${stripsHtml('main', d.strips)}<p class="blurb">To turn or flip pieces, use <b>Rows</b> and <b>Columns</b> on the board.</p></section>`;
     } else {
       html += `<section class="section"><h2>Panels <button class="small" data-act="addPanel">+ Panel</button></h2>
         ${d.panels
@@ -570,7 +565,12 @@
   }
   function setPaint(on) {
     paint.on = on;
-    if (on && selected) {
+    const wasArr = !!arrange.axis;
+    if (on && wasArr) {
+      arrange.axis = null;
+      arrange.sel = [];
+    }
+    if (on && (selected || wasArr)) {
       selected = null;
       update();
     }
@@ -624,10 +624,117 @@
     if (t.dataset.paintLayer) paint.layer = t.dataset.paintLayer;
     else if (t.dataset.paintSp) paint.species = t.dataset.paintSp;
     else if (t.dataset.paintClear !== undefined) {
-      commit((d) => (d.paint = { cells: {}, accents: {} }));
+      commit((d) => (d.paint = { cells: {}, accents: {}, turns: engine.paintOf(d).turns }));
       toast('Paint cleared.');
     } else if (t.dataset.paintDone !== undefined) return setPaint(false);
     renderPaint();
+  }
+
+  // ---------- rows and columns ----------
+  // Pick rows or columns on the board, then turn or flip their pieces: the
+  // whole line, or every other piece starting on the first or second.
+  const arrange = { axis: null, sel: [], pieces: 'all', offset: false };
+  function linesOf(axis) {
+    // Each row (or column) as its pieces in order.
+    const rows = {};
+    result.blocks.forEach((b) => (rows[b.row] = rows[b.row] || []).push(b));
+    const list = Object.keys(rows)
+      .map(Number)
+      .sort((a, b) => a - b)
+      .map((k) => rows[k].sort((a, b) => a.x - b.x));
+    if (axis === 'rows') return list;
+    const cols = [];
+    list.forEach((row) => row.forEach((b, c) => (cols[c] = cols[c] || []).push(b)));
+    return cols;
+  }
+  function lineIndexOf(b) {
+    if (arrange.axis === 'rows') return linesOf('rows').findIndex((l) => l.includes(b));
+    const row = linesOf('rows').find((l) => l.includes(b));
+    return row ? row.indexOf(b) : -1;
+  }
+  function arrangeTargets() {
+    if (!arrange.axis || !result || !result.blocks) return { lines: [], targets: [] };
+    const all = linesOf(arrange.axis);
+    const lines = arrange.sel.filter((i) => all[i]).map((i) => all[i]);
+    const targets = lines.flatMap((l) => (arrange.pieces === 'all' ? l : l.filter((_, i) => i % 2 === (arrange.offset ? 1 : 0))));
+    return { lines: lines.flat(), targets };
+  }
+  function setArrange(axis) {
+    arrange.axis = arrange.axis === axis ? null : axis;
+    arrange.sel = [];
+    if (arrange.axis && paint.on) setPaint(false);
+    if (arrange.axis) selected = null;
+    update();
+  }
+  function renderArrange() {
+    const tile = engine.isTile(design.pattern);
+    $('#btnRows').hidden = tile;
+    $('#btnCols').hidden = tile;
+    if (tile && arrange.axis) arrange.axis = null;
+    $('#btnRows').setAttribute('aria-pressed', String(arrange.axis === 'rows'));
+    $('#btnCols').setAttribute('aria-pressed', String(arrange.axis === 'cols'));
+    const el = $('#arrangeBar');
+    if (!arrange.axis) {
+      el.hidden = true;
+      return;
+    }
+    const word = arrange.axis === 'rows' ? 'row' : 'column';
+    const n = arrange.sel.length;
+    const { targets } = arrangeTargets();
+    const seg = (key, val, label, on) => `<button data-arr-${key}="${val}" aria-checked="${on}">${label}</button>`;
+    el.hidden = false;
+    el.innerHTML = `<h4>${arrange.axis === 'rows' ? 'Rows' : 'Columns'}</h4>
+      <p>${n ? `${n} ${word}${n > 1 ? 's' : ''} picked, ${targets.length} piece${targets.length === 1 ? '' : 's'} outlined.` : `Tap the board to pick a ${word}. Tap again to drop it.`}</p>
+      <div class="arr-grid">
+        <span>Pick</span><div class="row-actions" style="margin:0"><button class="small" data-arr-pick="all">All</button><button class="small" data-arr-pick="odd">1st, 3rd…</button><button class="small" data-arr-pick="even">2nd, 4th…</button>${n ? '<button class="small ghost" data-arr-pick="none">Clear</button>' : ''}</div>
+        <span>Pieces</span><div class="seg" role="radiogroup">${seg('pieces', 'all', `Whole ${word}`, arrange.pieces === 'all')}${seg('pieces', 'alt', 'Every other piece', arrange.pieces === 'alt')}</div>
+        ${arrange.pieces === 'alt' ? `<span>Offset</span><div class="seg" role="radiogroup">${seg('offset', '0', 'Start on 1st', !arrange.offset)}${seg('offset', '1', 'Start on 2nd', arrange.offset)}</div>` : ''}
+      </div>
+      <div class="arr-acts">
+        <button class="small" data-arr-do="90"${targets.length ? '' : ' disabled'}>↻ 90°</button>
+        <button class="small" data-arr-do="180"${targets.length ? '' : ' disabled'}>↻ 180°</button>
+        <button class="small" data-arr-do="270"${targets.length ? '' : ' disabled'}>↺ 90°</button>
+        <button class="small" data-arr-do="flip"${targets.length ? '' : ' disabled'} title="Flip end for end, which mirrors the end face">⇄ Flip</button>
+        <button class="small ghost" data-arr-do="reset"${targets.length ? '' : ' disabled'}>Reset</button>
+        <span class="spacer" style="flex:1"></span>
+        <button class="small primary" data-arr-done>Done</button>
+      </div>`;
+  }
+  function arrangeApply(what) {
+    const { targets } = arrangeTargets();
+    if (!targets.length) return;
+    // What each piece is with no single-piece turns, so turning a piece back
+    // to its stick's own way drops the override.
+    const base = {};
+    engine.compute({ ...design, paint: { ...engine.paintOf(design), turns: {} } }, speciesList).blocks.forEach((b) => (base[b.paintKey] = { rot: b.rot || 0, flip: !!b.mirror }));
+    commit((d) => {
+      const turns = { ...engine.paintOf(d).turns };
+      targets.forEach((b) => {
+        const k = b.paintKey;
+        const bs = base[k] || { rot: 0, flip: false };
+        if (what === 'reset') return delete turns[k];
+        const cur = turns[k] || { rot: b.rot || 0, flip: !!b.mirror };
+        const next = what === 'flip' ? { rot: cur.rot, flip: !cur.flip } : { rot: (cur.rot + Number(what)) % 360, flip: cur.flip };
+        if (next.rot === bs.rot && next.flip === bs.flip) delete turns[k];
+        else turns[k] = next;
+      });
+      d.paint = { ...engine.paintOf(d), turns };
+    });
+  }
+  function onArrangeClick(e) {
+    const t = e.target.closest('button');
+    if (!t || t.disabled) return;
+    const ds = t.dataset;
+    if (ds.arrDone !== undefined) return setArrange(arrange.axis);
+    if (ds.arrDo) return arrangeApply(ds.arrDo);
+    if (ds.arrPieces) arrange.pieces = ds.arrPieces;
+    if (ds.arrOffset) arrange.offset = ds.arrOffset === '1';
+    if (ds.arrPick) {
+      const count = linesOf(arrange.axis).length;
+      const idx = [...Array(count).keys()];
+      arrange.sel = ds.arrPick === 'all' ? idx : ds.arrPick === 'odd' ? idx.filter((i) => i % 2 === 0) : ds.arrPick === 'even' ? idx.filter((i) => i % 2 === 1) : [];
+    }
+    update();
   }
 
   // ---------- events ----------
@@ -1304,6 +1411,13 @@
   // ---------- wire up ----------
   const preview = new CB.Preview($('#preview'), {
     onPick: (b) => {
+      if (arrange.axis) {
+        if (!b) return;
+        const i = lineIndexOf(b);
+        if (i < 0) return;
+        arrange.sel = arrange.sel.includes(i) ? arrange.sel.filter((x) => x !== i) : [...arrange.sel, i].sort((a, c) => a - c);
+        return update();
+      }
       selected = b ? b.ref : null;
       update();
     },
@@ -1311,6 +1425,9 @@
   });
   $('#btnPaint').onclick = () => setPaint(!paint.on);
   $('#paintBar').addEventListener('click', onPaintClick);
+  $('#btnRows').onclick = () => setArrange('rows');
+  $('#btnCols').onclick = () => setArrange('cols');
+  $('#arrangeBar').addEventListener('click', onArrangeClick);
 
   $('#leftPanel').addEventListener('change', onChange);
   $('#leftPanel').addEventListener('click', onClick);
