@@ -299,6 +299,19 @@
           ctx.fill();
           if (this.streaks[b.species]) this.longStreaks(ctx, pts, b, hexRgb(this.streaks[b.species]), k);
           else if (!this.fast) this.longGrain(ctx, pts, c0, b);
+          // The accent runs the full length of the stick, so it shows on
+          // the board's sides too.
+          if (b.accent) {
+            const axis = side.n[1] !== 0 ? 1 : 0;
+            const at = axis === 1 ? (side.n[1] > 0 ? L : 0) : side.n[0] > 0 ? W : 0;
+            const sp = edgeSpan({ poly: b.accent.poly }, axis, at);
+            if (sp) {
+              const q = axis === 1 ? [[sp[0], at], [sp[1], at]] : [[at, sp[0]], [at, sp[1]]];
+              poly(ctx, [proj(q[0][0], q[0][1], 0), proj(q[1][0], q[1][1], 0), proj(q[1][0], q[1][1], Tz), proj(q[0][0], q[0][1], Tz)]);
+              ctx.fillStyle = rgb(col(b.accent.species), k);
+              ctx.fill();
+            }
+          }
           ctx.strokeStyle = 'rgba(0,0,0,0.18)';
           ctx.lineWidth = 0.6;
           ctx.stroke();

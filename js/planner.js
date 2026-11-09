@@ -160,13 +160,31 @@
       );
       const sticks = r.panels.filter((p) => p.accentPrep).reduce((n, p) => n + p.accentPrep.sticks, 0);
       const gain = A.thickness - S.kerfRip;
+      const accName = esc(sp(r.panels.find((p) => p.accentPrep).strips.find((x) => x.accent).accent.species).name);
+      add(
+        'accent-stick',
+        `Pick out the ${sticks} sticks that get an accent`,
+        `These are the strips you just ripped. Each one becomes three pieces, then one stick again.`,
+        `<p class="note">${A.alternate ? 'Every other stick gets its line mirrored, so mark the mirrored ones now. ' : ''}Mark the top face and one end of every stick so the halves go back the same way.</p>`
+      );
+      add(
+        'accent-rip',
+        `Rip each stick in two at ${A.angle}°`,
+        `Tilt the blade so the cut is ${A.angle}° to the face, and rip each stick lengthwise ${Math.abs(A.offset) > 0.01 ? `${Math.round(Math.abs(A.offset) * 100)}% off centre` : 'through the centre'}.`,
+        `<p class="note">You now have two halves per stick. Keep each pair together, in order, with your marks facing up. The blade removes ${fmt(S.kerfRip)}; the accent puts it back.</p>`
+      );
       add(
         'accent-glue',
-        `Rip ${sticks} sticks at ${A.angle}° and glue in the accents`,
-        `Rip each strip lengthwise at ${A.angle}° to its face, ${Math.abs(A.offset) > 0.01 ? `${Math.round(Math.abs(A.offset) * 100)}% off centre` : 'through the centre'}. Glue an accent strip between the two halves and clamp them back together with the ends lined up.`,
-        `${A.alternate ? '<p>Mirror the angle on every other stick.</p>' : ''}
-        <p class="note">${Math.abs(gain) < 0.01 ? `The ${fmt(A.thickness)} accent fills the ${fmt(S.kerfRip)} kerf, so each stick comes back to its original size.` : gain < 0 ? `The accent is ${fmt(-gain)} thinner than the kerf. The strips were ripped oversize to make up for it.` : `The accent is ${fmt(gain)} thicker than the kerf. Joint the sticks back to size once the glue cures.`}</p>
-        <p class="note">Let the glue cure before the next glue-up.</p>`
+        `Glue a ${accName} strip between the halves`,
+        `Spread glue on both cut faces, set the accent strip between them, and clamp the three pieces back into one stick with the ends lined up.`,
+        `<p class="note">The accent strip is a little wider than the cut, so it sticks out on both faces. That's on purpose; it gets planed off next.</p>
+        ${A.alternate ? '<p class="note">Mirror the angle on every other stick.</p>' : ''}`
+      );
+      add(
+        'accent-done',
+        'Plane the accent flush',
+        `Once the glue cures, plane or sand the accent flush. Three pieces are one stick again, with the line running its full length.`,
+        `<p class="note">${Math.abs(gain) < 0.01 ? `The ${fmt(A.thickness)} accent fills the ${fmt(S.kerfRip)} kerf, so each stick is back to its original size.` : gain < 0 ? `The accent is ${fmt(-gain)} thinner than the kerf. The strips were ripped oversize to make up for it.` : `The accent is ${fmt(gain)} thicker than the kerf. Joint the sticks back to size.`} Repeat for all ${sticks} sticks.</p>`
       );
     }
 

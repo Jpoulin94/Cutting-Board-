@@ -823,5 +823,5 @@
     return out;
   }
 
-  CB.engine = { isTile, DEFAULT_TILE, clip, IN, PATTERNS, DEFAULT_SETTINGS, DEFAULT_ACCENT, DEFAULT_DETAILS, fitOptions, accentBand, chord, newDesign, normalizeDesign, generate, compute, roughFor, uid, alternate };
+  CB.engine = { turn, accentLine, isTile, DEFAULT_TILE, clip, IN, PATTERNS, DEFAULT_SETTINGS, DEFAULT_ACCENT, DEFAULT_DETAILS, fitOptions, accentBand, chord, newDesign, normalizeDesign, generate, compute, roughFor, uid, alternate };
 })(typeof window !== 'undefined' ? window : globalThis);

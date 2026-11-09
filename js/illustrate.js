@@ -132,6 +132,43 @@
         const r = rand(seed * 31 + (normalAxis.charCodeAt(0) - 119));
         if (normalAxis === b.grain) endGrain(ctx, f, base, streak, r, b);
         else longGrain(ctx, f, f.a === b.grain ? 'a' : 'b', base, streak, r, s);
+        if (b.xdecor) {
+          // An accent running along a lying stick: (u, v) across its end, v up.
+          const ax = f.n[0] ? 'x' : f.n[1] ? 'y' : 'z';
+          for (const dc of b.xdecor) {
+            ctx.fillStyle = rgb(hexRgb((sp[dc.species] || { color: '#6e2f55' }).color), f.k);
+            if (ax === 'y') {
+              ctx.beginPath();
+              dc.poly.forEach(([u, v], i) => (i ? ctx.lineTo(u, v) : ctx.moveTo(u, v)));
+              ctx.closePath();
+              ctx.fill();
+            } else {
+              const along = ax === 'z' ? 1 : 0; // which coordinate sits on this face
+              const at = ax === 'z' ? b.h : f.n[0] > 0 ? b.w : 0;
+              const vals = dc.poly.filter((p) => Math.abs(p[along] - at) < 0.01).map((p) => p[1 - along]);
+              if (vals.length < 2) continue;
+              const lo = Math.min(...vals);
+              const hi = Math.max(...vals);
+              if (ax === 'z') ctx.fillRect(lo, 0, hi - lo, f.lb);
+              else ctx.fillRect(0, lo, f.la, hi - lo);
+            }
+          }
+        }
+        if (f.n[2] === 0 && b.decor) {
+          // Accent lines run the full length of the stick, so they show on its sides.
+          const ax = f.n[1] ? 1 : 0;
+          const at = ax === 1 ? (f.n[1] > 0 ? Y + b.d : Y) : f.n[0] > 0 ? X + b.w : X;
+          const o0 = ax === 1 ? X : Y;
+          for (const dc of b.decor) {
+            const vals = dc.poly.filter((p) => Math.abs(p[ax] - at) < 0.01).map((p) => p[1 - ax]);
+            if (vals.length < 2) continue;
+            const lo = Math.min(...vals) - o0;
+            const hi = Math.max(...vals) - o0;
+            if (hi - lo < 0.01) continue;
+            ctx.fillStyle = rgb(hexRgb((sp[dc.species] || { color: '#6e2f55' }).color), f.k);
+            ctx.fillRect(lo, 0, hi - lo, f.lb);
+          }
+        }
         if (f.n[2] === 1 && b.decor) {
           for (const d of b.decor) {
             ctx.beginPath();
@@ -308,6 +345,14 @@
     const out = {};
     const IN = 25.4;
     const gapOf = (v) => Math.max(IN * 0.4, v * 0.06);
+    // The accent line inside a lying strip, h thick, as seen on its end.
+    const xdec = (st, p, h) => {
+      if (!st.accent || !r.accent) return null;
+      let poly = CB.engine.accentBand(st.width, p.thickness, r.accent, st.accent.mirrored);
+      if (st.rot) poly = CB.engine.turn(poly, st.width, p.thickness, st.rot);
+      const k = st.rip / st.width;
+      return [{ poly: poly.map(([u, v]) => [u * k, h - (v * h) / p.thickness]), species: st.accent.species }];
+    };
 
     // Boards to mill: one per species and panel, side by side.
     {
@@ -345,7 +390,7 @@
       const boxes = [];
       let x = 0;
       p.strips.forEach((s, i) => {
-        boxes.push({ x, y: 0, z: 0, w: s.rip, d: p.length, h: p.milled, species: s.species, grain: 'y', seed: i * 13 + 7 });
+        boxes.push({ x, y: 0, z: 0, w: s.rip, d: p.length, h: p.milled, species: s.species, grain: 'y', seed: i * 13 + 7, xdecor: xdec(s, p, p.milled) });
         x += s.rip;
       });
       out[`glue1-${p.id}`] = { boxes };
@@ -358,7 +403,7 @@
       for (const p of r.panels) {
         let xx = x;
         p.strips.forEach((s, i) => {
-          boxes.push({ x: xx, y: 0, z: 0, w: s.rip, d: p.length, h: p.thickness, species: s.species, grain: 'y', seed: i * 13 + 7 });
+          boxes.push({ x: xx, y: 0, z: 0, w: s.rip, d: p.length, h: p.thickness, species: s.species, grain: 'y', seed: i * 13 + 7, xdecor: xdec(s, p, p.thickness) });
           xx += s.rip;
         });
         x = xx + gapOf(p.width) * 2;
@@ -377,7 +422,7 @@
         let x = 0;
         const y = j * (p.sliceLength + g);
         p.strips.forEach((s, i) => {
-          boxes.push({ x, y, z: 0, w: s.rip, d: p.sliceLength, h: p.thickness, species: s.species, grain: 'y', seed: i * 13 + 7 });
+          boxes.push({ x, y, z: 0, w: s.rip, d: p.sliceLength, h: p.thickness, species: s.species, grain: 'y', seed: i * 13 + 7, xdecor: xdec(s, p, p.thickness) });
           x += s.rip;
         });
         labels.push({ x: -IN * 0.6, y: y + p.sliceLength / 2, z: p.thickness, text: String(j + 1) });
@@ -408,11 +453,38 @@
     out.trim = { boxes: boardBoxes(0) };
     out.finish = { boxes: boardBoxes(0), yaw: -38, pitch: 42 };
 
-    // One stick end with its accent, for the accent steps.
-    const b0 = r.blocks.find((b) => b.accent);
-    if (b0) {
-      const decor = [{ poly: b0.accent.poly.map(([x, y]) => [x - b0.x, y - b0.y]), species: b0.accent.species }];
-      out['accent-glue'] = { boxes: [{ x: 0, y: 0, z: 0, w: b0.w, d: b0.d, h: b0.d * 2.2, species: b0.species, grain: 'z', decor }], yaw: -30, pitch: 40 };
+    // One accented stick, step by step: whole, ripped in two, the three
+    // pieces apart, and glued back into one stick.
+    const A = r.accent;
+    const ap = A && r.panels.find((p) => p.accentPrep);
+    if (ap) {
+      const E = CB.engine;
+      const st = ap.strips.find((x) => x.accent);
+      const w = st.width;
+      const dd = ap.thickness;
+      const L = Math.min(ap.length, Math.max(w, dd) * 3);
+      const line = E.accentLine(w, dd, A, st.accent.mirrored);
+      const c0 = line.nx * line.cx + line.ny * line.cy;
+      const h = A.thickness / 2;
+      const m = IN / 8;
+      const rect = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+      const R = rect(0, 0, w, dd);
+      const halfA = E.clip(R, line.nx, line.ny, c0 - h);
+      const halfB = E.clip(R, -line.nx, -line.ny, -(c0 + h));
+      const band = (poly) => E.clip(E.clip(poly, line.nx, line.ny, c0 + h), -line.nx, -line.ny, -(c0 - h));
+      const flush = band(R);
+      const proud = band(rect(-m, -m, w + m, dd + m));
+      // (u, v) of the stick's end: u across, v up. Shift along the cut's normal.
+      const at = (poly, k) => poly.map(([u, v]) => [u + line.nx * k, dd - v - line.ny * k]);
+      const piece = (poly, k, species, seed) => prismItem(at(poly, k), 'y', 0, L, species, seed);
+      const acc = st.accent.species;
+      out['accent-strips'] = {
+        boxes: [0, 1, 2].map((i) => ({ x: i * (A.thickness + IN * 0.6), y: 0, z: 0, w: A.thickness, d: L, h: ap.accentPrep.stripWidth, species: acc, grain: 'y', seed: i * 11 + 3 })),
+      };
+      out['accent-stick'] = { boxes: [piece(R, 0, st.species, 5)], yaw: 32, pitch: 28 };
+      out['accent-rip'] = { boxes: [piece(halfA, -IN * 0.35, st.species, 5), piece(halfB, IN * 0.35, st.species, 9)], yaw: 32, pitch: 28 };
+      out['accent-glue'] = { boxes: [piece(halfA, -IN * 0.9, st.species, 5), piece(proud, 0, acc, 3), piece(halfB, IN * 0.9, st.species, 9)], yaw: 32, pitch: 28 };
+      out['accent-done'] = { boxes: [piece(halfA, 0, st.species, 5), piece(flush, 0, acc, 3), piece(halfB, 0, st.species, 9)], yaw: 32, pitch: 28 };
     }
     return out;
   }
