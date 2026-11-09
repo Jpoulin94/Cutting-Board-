@@ -349,6 +349,7 @@
     const xdec = (st, p, h) => {
       if (!st.accent || !r.accent) return null;
       let poly = CB.engine.accentBand(st.width, p.thickness, r.accent, st.accent.mirrored);
+      if (st.flip) poly = poly.map(([u, v]) => [st.width - u, v]);
       if (st.rot) poly = CB.engine.turn(poly, st.width, p.thickness, st.rot);
       const k = st.rip / st.width;
       return [{ poly: poly.map(([u, v]) => [u * k, h - (v * h) / p.thickness]), species: st.accent.species }];

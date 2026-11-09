@@ -92,7 +92,14 @@
         c.setPointerCapture(e.pointerId);
         this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
         moved = 0;
+        if (this.paintMode && this.pointers.size === 1) {
+          this.painting = true;
+          const hit = this.pick(e);
+          if (this.opts.onPaint) this.opts.onPaint(hit ? hit.block : null, 'start');
+        }
         if (this.pointers.size === 2) {
+          if (this.painting && this.opts.onPaint) this.opts.onPaint(null, 'end');
+          this.painting = false;
           const [a, b] = [...this.pointers.values()];
           pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y), zoom: this.zoom };
         }
@@ -111,6 +118,10 @@
           const [a, b] = [...this.pointers.values()];
           this.zoom = Math.min(4, Math.max(0.4, (pinch.zoom * Math.hypot(a.x - b.x, a.y - b.y)) / pinch.dist));
           moved += 10;
+        } else if (this.painting) {
+          const hit = this.pick(e);
+          if (hit && this.opts.onPaint) this.opts.onPaint(hit.block, 'move');
+          return;
         } else {
           moved += Math.abs(dx) + Math.abs(dy);
           if (moved < 4) return;
@@ -124,7 +135,14 @@
         if (!this.pointers.has(e.pointerId)) return;
         this.pointers.delete(e.pointerId);
         if (this.pointers.size < 2) pinch = null;
-        if (moved < 4 && e.type === 'pointerup') {
+        if (this.painting) {
+          if (!this.pointers.size) {
+            this.painting = false;
+            if (this.opts.onPaint) this.opts.onPaint(null, 'end');
+          }
+          return;
+        }
+        if (moved < 4 && e.type === 'pointerup' && !this.paintMode) {
           const hit = this.pick(e);
           if (this.opts.onPick) this.opts.onPick(hit ? hit.block : null);
         }
@@ -165,11 +183,12 @@
     }
 
     hoverAt(e) {
-      const hit = this.pick(e);
+      const hit = this.paintMode ? null : this.pick(e);
       const b = hit ? hit.block : null;
+      this.canvas.style.cursor = this.paintMode ? 'crosshair' : this.canvas.style.cursor;
       if (b !== this.hover) {
         this.hover = b;
-        this.canvas.style.cursor = b ? 'pointer' : 'grab';
+        this.canvas.style.cursor = this.paintMode ? 'crosshair' : b ? 'pointer' : 'grab';
         this.draw();
         if (this.opts.onHover) this.opts.onHover(b);
       }
@@ -540,7 +559,8 @@
       let cx;
       let cy;
       if (b.turnRad != null) {
-        const ang = Math.PI / 2 + (rnd() - 0.5) * 0.5 + b.turnRad;
+        const jit = (rnd() - 0.5) * 0.5;
+        const ang = Math.PI / 2 + (b.mirror ? -jit : jit) + b.turnRad;
         const dist = size * (0.9 + rnd() * 0.5);
         cx = b.sx + b.sw / 2 + Math.cos(ang) * dist;
         cy = b.y + b.d / 2 + Math.sin(ang) * dist;

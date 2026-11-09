@@ -281,6 +281,39 @@ button:disabled {
   left: 12px;
   box-shadow: var(--shadow);
 }
+.paint-btn {
+  position: absolute;
+  top: 56px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: var(--shadow);
+  background: var(--panel);
+}
+.paint-btn[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.paintbar .seg {
+  margin-bottom: 8px;
+}
+.paintbar .swatches {
+  max-height: 180px;
+  overflow: auto;
+}
+.paintbar .paint-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.paintbar .paint-foot .spacer {
+  flex: 1;
+}
 .dims {
   position: absolute;
   top: 12px;
@@ -489,7 +522,7 @@ input.plain {
 }
 .strip-row {
   display: grid;
-  grid-template-columns: 22px 1fr 84px 44px 22px;
+  grid-template-columns: 22px 1fr 84px 44px 30px 22px;
   gap: 6px;
   align-items: center;
 }
@@ -1314,6 +1347,29 @@ dialog menu {
   .dims {
     top: auto;
     bottom: 12px;
+  }
+  .paintbar {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    padding: 8px 10px;
+  }
+  .paintbar p,
+  .paintbar h4 {
+    display: none;
+  }
+  .paintbar .swatches {
+    display: flex;
+    overflow-x: auto;
+    max-height: none;
+  }
+  .paintbar .swatches button {
+    flex: none;
+    white-space: nowrap;
+  }
+  .paintbar .paint-foot {
+    margin-top: 6px;
   }
   .sheet {
     padding: 16px;

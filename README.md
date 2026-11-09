@@ -29,6 +29,10 @@ The app is a single web page with nothing to install and no internet connection 
 ### Changing colours
 Click any block in the 3D preview. Every block cut from that strip lights up, and picking a species changes them all. You can also pick species in the strip list, or use **Alternate … and …** to fill a two-colour pattern.
 
+**Paint bucket.** Press **Paint** on the 3D view, choose **Main** or **Accent** (on honeycomb, **Border**), pick a wood, then tap or drag over blocks. Each block you touch changes until you press **Done**. One drag is one undo. Painting single squares gives those rows their own strip panels (A2, A3…) in the cut list.
+
+**Turn and flip.** ↻ turns a stick on its long axis in quarter turns. ⇄ flips it end for end, which mirrors its end face, so you can make accent lines meet in chevrons. **Flip end for end … every other strip** does it in one go.
+
 ### How sizes are worked out
 - Strip widths set the board's columns. The panel's thickness (row depth) sets each row.
 - Each crosscut slice is the board thickness plus the flattening allowance. The panel length is the end trim plus one slice and one kerf per row. For example, 16 rows with a 1/8" blade lose 2" to kerf.

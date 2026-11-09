@@ -213,7 +213,7 @@
 
     // 5. Glue-up 1, one page per panel.
     for (const p of r.panels) {
-      const order = p.strips.map((s, i) => `<li>${sw(s.species)}${esc(sp(s.species).name)} · ${fmt(s.rip)}${s.rot ? ` · turned ${s.rot}°` : ''}</li>`).join('');
+      const order = p.strips.map((s, i) => `<li>${sw(s.species)}${esc(sp(s.species).name)} · ${fmt(s.rip)}${s.rot ? ` · turned ${s.rot}°` : ''}${s.flip ? ' · flipped end for end' : ''}</li>`).join('');
       add(
         `glue1-${p.id}`,
         `Glue up ${pn(p)}`,

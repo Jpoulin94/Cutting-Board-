@@ -335,3 +335,40 @@ test('bordered honeycomb: core plus six border strips per hexagon', () => {
   // No border on cubes.
   assert.equal(engine.compute(engine.normalizeDesign({ ...d, pattern: 'cubes' }), sp).tiles.border, null);
 });
+
+const sp = species.defaults();
+
+test('painting a square makes its own row panel and changes the wood', () => {
+  const d = engine.normalizeDesign({ ...engine.newDesign('p'), pattern: 'stripes' });
+  const r0 = engine.compute(d, sp);
+  const b = r0.blocks[3];
+  const d2 = engine.normalizeDesign({ ...d, paint: { cells: { [b.paintKey]: 'sp_padauk' }, accents: {} } });
+  const r1 = engine.compute(d2, sp);
+  const hit = r1.blocks.find((x) => x.paintKey === b.paintKey);
+  assert.equal(hit.species, 'sp_padauk');
+  assert.ok(r1.panels.length > r0.panels.length);
+  assert.ok(r1.lumber.some((l) => l.species === 'sp_padauk'));
+});
+
+test('painting a honeycomb border overrides its species', () => {
+  const d = engine.normalizeDesign({ ...engine.newDesign('h'), pattern: 'honeycomb', tile: { ...engine.DEFAULT_TILE, border: 4 } });
+  const r0 = engine.compute(d, sp);
+  const b = r0.blocks.find((x) => x.border);
+  const d2 = engine.normalizeDesign({ ...d, paint: { cells: {}, accents: { [b.paintKey]: 'sp_padauk' } } });
+  const r1 = engine.compute(d2, sp);
+  assert.equal(r1.blocks.find((x) => x.paintKey === b.paintKey).species, 'sp_padauk');
+});
+
+test('a flipped stick mirrors its accent and keeps its flip', () => {
+  const d = engine.normalizeDesign({ ...engine.newDesign('f'), pattern: 'stripes', accent: { ...engine.DEFAULT_ACCENT, enabled: true } });
+  d.strips[1].flip = true;
+  const n = engine.normalizeDesign(d);
+  assert.equal(n.strips[1].flip, true);
+  assert.equal(n.strips[0].flip, undefined);
+  const r = engine.compute(n, sp);
+  const a = r.blocks.find((x) => x.row === 0 && x.ref && x.ref.strip === 0 && x.accent);
+  const f = r.blocks.find((x) => x.row === 0 && x.ref && x.ref.strip === 1 && x.accent);
+  assert.ok(f.mirror && !a.mirror);
+  const rel = (blk) => blk.accent.poly.map(([x, y]) => [Math.round(x - blk.sx), Math.round(y - blk.y)]).sort().join();
+  assert.notEqual(rel(a), rel(f));
+});

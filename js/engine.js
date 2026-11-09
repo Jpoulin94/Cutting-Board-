@@ -95,6 +95,7 @@
       rowPlan: ['pA', 'pB', 'pA', 'pA', 'pB', 'pA', 'pA', 'pB', 'pA'].map((panel, i) => ({ panel, flip: i % 2 === 1 })),
       accent: { ...DEFAULT_ACCENT },
       details: { ...DEFAULT_DETAILS },
+      paint: { cells: {}, accents: {} },
       tile: JSON.parse(JSON.stringify(DEFAULT_TILE)),
       settings: { ...DEFAULT_SETTINGS, ...settings },
     };
@@ -110,6 +111,7 @@
       const rot = Math.round(num(s && s.rot, 0) / 90) * 90;
       const out = { width: pos(s && s.width, IN), species: String((s && s.species) || 'sp_maple') };
       if (rot % 360) out.rot = ((rot % 360) + 360) % 360;
+      if (s && s.flip) out.flip = true; // flipped end for end: its end face is mirrored
       return out;
     });
   }
@@ -169,6 +171,9 @@
     };
     // Leave at least half the hexagon as core.
     out.tile.border = Math.min(out.tile.border, (out.tile.size * Math.sqrt(3)) / 2 * 0.5);
+    const pt = paintOf(d);
+    const clean = (o) => Object.fromEntries(Object.entries(o).filter(([k, v]) => typeof k === 'string' && typeof v === 'string' && v));
+    out.paint = { cells: clean(pt.cells), accents: clean(pt.accents) };
     const x = d.details && typeof d.details === 'object' ? d.details : {};
     out.details = {
       groove: !!x.groove,
@@ -224,7 +229,7 @@
           thickness: d.rowDepth,
           strips: strips.map((s, i) => {
             const from = i === 0 ? Math.min(1, strips.length - 1) : i - 1;
-            return { width: s.width, species: strips[from].species, rot: strips[from].rot, ref: { strip: from } };
+            return { width: s.width, species: strips[from].species, rot: strips[from].rot, flip: strips[from].flip, ref: { strip: from } };
           }),
         };
         panels = [A, B];
@@ -330,6 +335,14 @@
     return out;
   }
 
+  // Squares painted a different wood: { cells: { key: species }, accents: { key: species } }.
+  function paintOf(d) {
+    const p = d.paint && typeof d.paint === 'object' ? d.paint : {};
+    const cells = p.cells && typeof p.cells === 'object' ? p.cells : {};
+    const accents = p.accents && typeof p.accents === 'object' ? p.accents : {};
+    return { cells, accents, any: Object.keys(cells).length + Object.keys(accents).length > 0 };
+  }
+
   function compute(design, speciesList) {
     if (isTile(design.pattern)) return computeTiles(design, speciesList);
     const d = design;
@@ -337,7 +350,7 @@
     const g = generate(d);
     const warnings = [...g.notes];
 
-    const panelById = Object.fromEntries(g.panels.map((p) => [p.id, p]));
+    let panelById = Object.fromEntries(g.panels.map((p) => [p.id, p]));
     const width = (p) => sum(p.strips.map((s) => s.width));
 
     // Finished board footprint: the part every row covers.
@@ -370,6 +383,39 @@
       });
     }
 
+    // Painted squares: a row whose squares differ from its panel becomes its
+    // own panel (same strips, different woods), so the cut list follows.
+    const paint = paintOf(d);
+    if (paint.any) {
+      const variants = [];
+      g.rows.forEach((r, ri) => {
+        const base = panelById[r.panel];
+        let changed = false;
+        const strips = base.strips.map((st, i) => {
+          const key = `${ri}:${i}`;
+          const sp = paint.cells[key];
+          const ac = paint.accents[key];
+          if (!sp && !(ac && st.accent)) return st;
+          changed = true;
+          return { ...st, species: sp || st.species, accent: st.accent && ac ? { ...st.accent, species: ac } : st.accent };
+        });
+        if (!changed) {
+          if (!variants.some((v) => v.id === base.id)) variants.push(base);
+          return;
+        }
+        const sig = JSON.stringify(strips.map((st) => [st.species, st.rot || 0, !!st.flip, st.accent ? st.accent.species : '']));
+        let v = variants.find((x) => x.base === base.id && x.sig === sig);
+        if (!v) {
+          const n = variants.filter((x) => x.base === base.id).length + 1;
+          v = { ...base, id: `${base.id}~${n}`, name: `${base.name}${n + 1}`, base: base.id, sig, strips };
+          variants.push(v);
+        }
+        r.panel = v.id;
+      });
+      g.panels = variants;
+      panelById = Object.fromEntries(g.panels.map((p) => [p.id, p]));
+    }
+
     // Blocks for the preview, clipped to the finished footprint.
     const blocks = [];
     let y = 0;
@@ -393,16 +439,19 @@
             // Where the whole stick sits, and how it's turned, for drawing
             // its grain the same way on every slice.
             stick: `${p.id}:${p.strips.indexOf(s)}`,
+            paintKey: `${ri}:${p.strips.indexOf(s)}`,
             poly: [[x0 - start, y], [x1 - start, y], [x1 - start, y + p.thickness], [x0 - start, y + p.thickness]],
             sx: x - start,
             sw: s.width,
             rot: s.rot || 0,
+            mirror: !!s.flip,
             flip: !!r.flip,
           };
           if (s.accent) {
             // A flipped slice is turned end for end in place, so its
             // cross-section is rotated half a turn.
             let poly = accentBand(s.width, p.thickness, A, s.accent.mirrored);
+            if (s.flip) poly = poly.map(([u, v]) => [s.width - u, v]);
             if (s.rot) poly = turn(poly, s.width, p.thickness, s.rot);
             if (r.flip) poly = poly.map(([u, v]) => [s.width - u, p.thickness - v]);
             poly = poly.map(([u, v]) => [x + u - start, y + v]);
@@ -621,6 +670,16 @@
     // of each that shows.
     const blocks = [];
     const sticks = [];
+    const paint = paintOf(d);
+    for (const pc of pieces) {
+      pc.parts.forEach((part, pi) => {
+        const key = `${pc.key}:${pi}`;
+        const over = part.wood === 3 ? paint.accents[key] : paint.cells[key];
+        part.species = over || woods[part.wood];
+        part.key = key;
+      });
+      pc.species = pc.parts[0].species;
+    }
     for (const pc of pieces) {
       const inLog = clipRect(pc.poly, -E, -E, W + E, L + E);
       if (inLog.length < 3 || area(inLog) < 1) continue;
@@ -640,8 +699,10 @@
         w: Math.max(...xs) - bx,
         d: Math.max(...ys) - by,
         poly: vis,
-        species: woods[part.wood],
+        species: part.species,
         ref: { tile: part.wood },
+        paintKey: part.key,
+        border: part.wood === 3,
         row: pc.row,
         panel: 'T',
         stick: `T:${pc.key}:${pi}`,
@@ -673,10 +734,10 @@
     const rowList = [];
     for (const r of usedRows) {
       const list = byRow[r].sort((a, b) => a.col - b.col || (a.key < b.key ? -1 : 1));
-      const seq = list.map((pc) => pc.wood).join(',');
+      const seq = list.map((pc) => pc.parts.map((part) => part.species).join('+')).join(',');
       let pan = panelsT.find((x) => x.seq === seq);
       if (!pan) {
-        pan = { id: `R${panelsT.length}`, name: String.fromCharCode(65 + panelsT.length), seq, rows: 0, sticks: list.map((pc) => ({ wood: pc.wood, species: woods[pc.wood] })), sample: list };
+        pan = { id: `R${panelsT.length}`, name: String.fromCharCode(65 + panelsT.length), seq, rows: 0, sticks: list.map((pc) => ({ wood: pc.wood, species: pc.species })), sample: list };
         panelsT.push(pan);
       }
       pan.rows += 1;
@@ -694,7 +755,7 @@
       const ys = pan.sample.flatMap((pc) => pc.poly.map((q) => q[1]));
       const x0 = Math.min(...xs);
       const y0 = Math.min(...ys);
-      pan.end = pan.sample.flatMap((pc, i) => pc.parts.map((part) => ({ poly: part.poly.map(([x, y]) => [x - x0, y - y0]), species: woods[part.wood], rot: part.rot, stick: i, border: part.border != null })));
+      pan.end = pan.sample.flatMap((pc, i) => pc.parts.map((part) => ({ poly: part.poly.map(([x, y]) => [x - x0, y - y0]), species: part.species, rot: part.rot, stick: i, border: part.border != null })));
       delete pan.sample;
     }
 
@@ -733,31 +794,37 @@
     // as thick as the strip is wide.
     let borderInfo = null;
     if (bordered) {
-      const bsp = woods[3];
       const stripW = s + IN / 8;
       const thickness = stripW + S.panelPlane;
       const rough = roughFor(thickness);
-      let e = lumber.find((l) => l.species === bsp);
-      if (!e) {
-        const sp = CB.species ? CB.species.byId(speciesList || [], bsp) : { name: bsp, price: null };
-        e = { species: bsp, name: sp.name, color: sp.color, price: sp.price, sticks: 0, rips: [], pieces: [], bf: 0 };
-        lumber.push(e);
-      }
       let strips = 0;
+      const touched = new Set();
       for (const pan of panelsT) {
-        const n = pan.sticks.length * 6;
-        strips += n;
-        const width = n * (bw + S.kerfRip) + IN / 4;
-        const pbf = (rough.inches * (width / IN) * (pan.length / IN)) / 144;
-        e.bf += pbf;
-        e.pieces.push({ panel: `Row ${pan.name} border`, width, length: pan.length, thickness, rough, bf: pbf, border: true });
-        e.rips.push({ key: `${bsp}|${pan.id}|border`, panel: `Row ${pan.name} border`, border: true, width: bw, length: pan.length, thickness: stripW, count: n });
+        const per = {};
+        for (const pc of pan.end) if (pc.border) per[pc.species] = (per[pc.species] || 0) + 1;
+        for (const [bsp, n] of Object.entries(per)) {
+          let e = lumber.find((l) => l.species === bsp);
+          if (!e) {
+            const sp = CB.species ? CB.species.byId(speciesList || [], bsp) : { name: bsp, price: null };
+            e = { species: bsp, name: sp.name, color: sp.color, price: sp.price, sticks: 0, rips: [], pieces: [], bf: 0 };
+            lumber.push(e);
+          }
+          touched.add(e);
+          strips += n;
+          const width = n * (bw + S.kerfRip) + IN / 4;
+          const pbf = (rough.inches * (width / IN) * (pan.length / IN)) / 144;
+          e.bf += pbf;
+          e.pieces.push({ panel: `Row ${pan.name} border`, width, length: pan.length, thickness, rough, bf: pbf, border: true });
+          e.rips.push({ key: `${bsp}|${pan.id}|border`, panel: `Row ${pan.name} border`, border: true, width: bw, length: pan.length, thickness: stripW, count: n });
+        }
       }
-      e.bfBuy = e.bf * (1 + S.waste / 100);
-      e.cost = e.price == null ? null : e.bfBuy * e.price;
-      e.volumeM3 = e.bfBuy * 0.00235974;
+      for (const e of touched) {
+        e.bfBuy = e.bf * (1 + S.waste / 100);
+        e.cost = e.price == null ? null : e.bfBuy * e.price;
+        e.volumeM3 = e.bfBuy * 0.00235974;
+      }
       rips += strips;
-      borderInfo = { width: bw, species: bsp, strips, stripWidth: stripW, coreSide, outerSide: s };
+      borderInfo = { width: bw, species: woods[3], strips, stripWidth: stripW, coreSide, outerSide: s };
     }
     lumber.sort((a, b) => b.bf - a.bf);
     const priced = lumber.filter((l) => l.cost != null);
@@ -839,7 +906,7 @@
 
     const cur = d.strips;
     const n0 = cur.length;
-    const same = (a, b) => a.species === b.species && Math.abs(a.width - b.width) < 1e-6 && (a.rot || 0) === (b.rot || 0);
+    const same = (a, b) => a.species === b.species && Math.abs(a.width - b.width) < 1e-6 && (a.rot || 0) === (b.rot || 0) && !!a.flip === !!b.flip;
     let period = 0;
     for (let p = 1; p * 2 <= n0 && !period; p++) if (cur.every((st, i) => same(st, cur[i % p]))) period = p;
     const uniform = cur.every((st) => Math.abs(st.width - cur[0].width) < 1e-6);
@@ -872,5 +939,5 @@
     return out;
   }
 
-  CB.engine = { turn, accentLine, isTile, DEFAULT_TILE, clip, IN, PATTERNS, DEFAULT_SETTINGS, DEFAULT_ACCENT, DEFAULT_DETAILS, fitOptions, accentBand, chord, newDesign, normalizeDesign, generate, compute, roughFor, uid, alternate };
+  CB.engine = { paintOf, turn, accentLine, isTile, DEFAULT_TILE, clip, IN, PATTERNS, DEFAULT_SETTINGS, DEFAULT_ACCENT, DEFAULT_DETAILS, fitOptions, accentBand, chord, newDesign, normalizeDesign, generate, compute, roughFor, uid, alternate };
 })(typeof window !== 'undefined' ? window : globalThis);

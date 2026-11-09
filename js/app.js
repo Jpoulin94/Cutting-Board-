@@ -117,6 +117,7 @@
     $('#saveState').textContent = lastSaved === null ? 'Not saved yet' : lastSaved === s ? 'Saved' : 'Unsaved changes';
     storage.saveCurrent(design);
     document.title = `${design.name} · Cutting Board Designer`;
+    if (paint.on) renderPaint();
   }
 
   // ---------- strips ----------
@@ -153,6 +154,7 @@
           ${speciesSelect(`${ctx}:${i}`, s.species)}
           ${lenInput(`strip:${ctx}:${i}`, s.width, { label: `Strip ${i + 1} width` })}
           <button class="turn${s.rot ? ' on' : ''}" data-act="turnStrip" data-ctx="${ctx}" data-i="${i}" title="Turn this stick on its long axis" aria-label="Turn strip ${i + 1}, now ${s.rot || 0} degrees">↻${s.rot || 0}°</button>
+          <button class="turn${s.flip ? ' on' : ''}" data-act="flipStrip" data-ctx="${ctx}" data-i="${i}" title="Flip this stick end for end, so its end face is mirrored" aria-label="Flip strip ${i + 1}, now ${s.flip ? 'flipped' : 'not flipped'}" aria-pressed="${!!s.flip}">⇄</button>
           <button class="x" data-act="delStrip" data-ctx="${ctx}" data-i="${i}" title="Remove strip" aria-label="Remove strip ${i + 1}"${strips.length < 2 ? ' disabled' : ''}>✕</button>
         </div>`;
       })
@@ -170,6 +172,10 @@
         <select class="plain" data-turn-which="${ctx}"><option value="checker">in a checkerboard</option><option value="even">every other strip</option><option value="all">all strips</option></select> by
         <select class="plain" data-turn-deg="${ctx}"><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option><option value="0">0° (reset)</option></select>
         <button class="small" data-act="turnBulk" data-ctx="${ctx}">Apply</button>
+      </div>
+      <div class="fill">Flip end for end
+        <select class="plain" data-flip-which="${ctx}"><option value="even">every other strip</option><option value="all">all strips</option><option value="none">none (reset)</option></select>
+        <button class="small" data-act="flipBulk" data-ctx="${ctx}">Apply</button>
       </div>
       <div class="fill">Alternate
         <select class="plain" data-fill-a="${ctx}">${optsSel(a)}</select> and
@@ -518,8 +524,110 @@
       <div class="field" style="margin:10px 0 0">${'<label>Width</label>'}${lenInput(`pickW`, s.width)}</div>
       <div class="turns"><span>Turn stick</span>${[0, 90, 180, 270]
         .map((deg) => `<button class="small" data-act="turnPick" data-deg="${deg}" aria-pressed="${(s.rot || 0) === deg}">${deg}°</button>`)
-        .join('')}</div>
+        .join('')}<button class="small" data-act="flipPick" aria-pressed="${!!s.flip}" title="Flip the stick end for end, so its end face is mirrored">⇄ Flip</button></div>
       <div class="row-actions"><button class="small" data-act="closePicker">Done</button></div>`;
+  }
+
+  // ---------- paint bucket ----------
+  const paint = { on: false, layer: 'main', species: 'sp_walnut', stroke: null };
+  function paintBase() {
+    // What each block would be with no paint, so painting a block back to
+    // its own wood removes the override.
+    const r = engine.compute({ ...design, paint: { cells: {}, accents: {} } }, speciesList);
+    const base = {};
+    r.blocks.forEach((b) => {
+      if (b.paintKey != null) base[b.paintKey] = { main: b.species, accent: b.accent ? b.accent.species : b.species };
+    });
+    return base;
+  }
+  function paintCount() {
+    const p = engine.paintOf(design);
+    return Object.keys(p.cells).length + Object.keys(p.accents).length;
+  }
+  function renderPaint() {
+    const el = $('#paintBar');
+    $('#btnPaint').setAttribute('aria-pressed', String(paint.on));
+    preview.paintMode = paint.on;
+    if (!paint.on) {
+      el.hidden = true;
+      return;
+    }
+    const tile = engine.isTile(design.pattern);
+    const n = paintCount();
+    el.hidden = false;
+    el.innerHTML = `<h4>Paint bucket</h4>
+      <p>Tap or drag over blocks to paint them. Two fingers still zoom.</p>
+      <div class="seg" role="radiogroup" aria-label="Paint what">
+        <button data-paint-layer="main" aria-checked="${paint.layer === 'main'}">Main</button>
+        <button data-paint-layer="accent" aria-checked="${paint.layer === 'accent'}">${tile ? 'Border' : 'Accent'}</button>
+      </div>
+      <div class="swatches">${speciesList
+        .map((sp) => `<button data-paint-sp="${sp.id}" aria-pressed="${sp.id === paint.species}"><i class="sw" style="background:${sp.color}"></i>${esc(sp.name)}</button>`)
+        .join('')}</div>
+      <div class="paint-foot"><span>${n ? `${n} painted` : 'Nothing painted yet'}</span><span class="spacer"></span>
+        ${n ? '<button class="small ghost" data-paint-clear>Clear paint</button>' : ''}
+        <button class="small primary" data-paint-done>Done</button></div>`;
+  }
+  function setPaint(on) {
+    paint.on = on;
+    if (on && selected) {
+      selected = null;
+      update();
+    }
+    renderPaint();
+  }
+  function onPaint(b, phase) {
+    if (phase === 'start') paint.stroke = { before: snapshot(), base: paintBase(), warned: false };
+    if (phase === 'end') {
+      const st = paint.stroke;
+      paint.stroke = null;
+      if (st && snapshot() !== st.before) {
+        undo.push(st.before);
+        if (undo.length > 200) undo.shift();
+        redo = [];
+        update();
+      }
+      return;
+    }
+    const st = paint.stroke;
+    if (!b || !st || b.paintKey == null) return;
+    const tile = engine.isTile(design.pattern);
+    const accent = paint.layer === 'accent';
+    const warn = (msg) => {
+      if (!st.warned) toast(msg);
+      st.warned = true;
+    };
+    let map;
+    if (tile) {
+      if (accent !== !!b.border) return warn(accent ? 'Paint borders with Border picked. That piece is a main piece.' : 'That piece is a border. Pick Border to paint it.');
+      map = 'cells';
+      if (b.border) map = 'accents';
+    } else {
+      if (accent && !b.accent) return warn(design.accent && design.accent.enabled ? 'That block has no accent strip.' : 'Turn on the angled accent first, then paint it.');
+      map = accent ? 'accents' : 'cells';
+    }
+    const base = st.base[b.paintKey];
+    const baseSp = base ? (accent && !tile ? base.accent : base.main) : null;
+    const cur = (design.paint && design.paint[map] && design.paint[map][b.paintKey]) || baseSp;
+    if (cur === paint.species) return;
+    design.paint = design.paint || { cells: {}, accents: {} };
+    const m = { ...(design.paint[map] || {}) };
+    if (paint.species === baseSp) delete m[b.paintKey];
+    else m[b.paintKey] = paint.species;
+    design.paint = { ...design.paint, [map]: m };
+    design = engine.normalizeDesign({ ...design, savedAt: design.savedAt });
+    update();
+  }
+  function onPaintClick(e) {
+    const t = e.target.closest('button');
+    if (!t) return;
+    if (t.dataset.paintLayer) paint.layer = t.dataset.paintLayer;
+    else if (t.dataset.paintSp) paint.species = t.dataset.paintSp;
+    else if (t.dataset.paintClear !== undefined) {
+      commit((d) => (d.paint = { cells: {}, accents: {} }));
+      toast('Paint cleared.');
+    } else if (t.dataset.paintDone !== undefined) return setPaint(false);
+    renderPaint();
   }
 
   // ---------- events ----------
@@ -617,6 +725,20 @@
         return commit(() => {
           const st = stripsOf(ctx)[Number(ds.i)];
           st.rot = ((st.rot || 0) + 90) % 360;
+        });
+      case 'flipStrip':
+        return commit(() => {
+          const st = stripsOf(ctx)[Number(ds.i)];
+          st.flip = !st.flip;
+        });
+      case 'flipBulk': {
+        const which = $(`[data-flip-which="${ctx}"]`).value;
+        return commit(() => stripsOf(ctx).forEach((st, i) => (st.flip = which === 'all' || (which === 'even' && i % 2 === 1))));
+      }
+      case 'flipPick':
+        return commit(() => {
+          const st = refStrip(selected);
+          st.flip = !st.flip;
         });
       case 'turnBulk': {
         const which = $(`[data-turn-which="${ctx}"]`).value;
@@ -1185,7 +1307,10 @@
       selected = b ? b.ref : null;
       update();
     },
+    onPaint,
   });
+  $('#btnPaint').onclick = () => setPaint(!paint.on);
+  $('#paintBar').addEventListener('click', onPaintClick);
 
   $('#leftPanel').addEventListener('change', onChange);
   $('#leftPanel').addEventListener('click', onClick);

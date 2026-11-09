@@ -62,7 +62,7 @@
         const w = st.rip * s;
         const out = `<rect x="${x}" y="0" width="${w}" height="${h}" fill="${sp.color}" stroke="#000" stroke-width="0.8"/>
           ${w > 12 ? `<text x="${x + w / 2}" y="${h / 2 + 4}" fill="${textOn(sp.color)}">${esc(code[st.species] || '')}</text>` : ''}
-          <text x="${x + w / 2}" y="${h + 13}" class="num">${i + 1}${st.rot ? ` \u21bb${st.rot}\u00b0` : ''}</text>`;
+          <text x="${x + w / 2}" y="${h + 13}" class="num">${i + 1}${st.rot ? ` \u21bb${st.rot}\u00b0` : ''}${st.flip ? ' \u21c4' : ''}</text>`;
         x += w;
         return out;
       })
@@ -98,6 +98,8 @@
     });
     const words = { 90: 'a quarter turn clockwise (90\u00b0)', 180: 'half a turn (180\u00b0)', 270: 'a quarter turn counter-clockwise (270\u00b0)' };
     const lines = Object.entries(by).map(([deg, list]) => `Turn stick${list.length > 1 ? 's' : ''} ${list.join(', ')} ${words[deg]} on its long axis before gluing, looking at the same end of every stick.`);
+    const flips = p.strips.map((st, i) => (st.flip ? i + 1 : 0)).filter(Boolean);
+    if (flips.length) lines.unshift(`Flip stick${flips.length > 1 ? 's' : ''} ${flips.join(', ')} end for end first, so ${flips.length > 1 ? 'their' : 'its'} end face is mirrored.`);
     return lines.length ? `<p><b>${lines.join(' ')}</b></p>` : '';
   }
 
