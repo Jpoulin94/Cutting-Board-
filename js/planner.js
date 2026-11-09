@@ -148,6 +148,10 @@
       'Mill your lumber',
       'Flatten, joint and plane each board to these sizes.',
       `<table class="t"><thead><tr><th>Wood</th><th>Thickness</th><th>Width</th><th>Length</th><th>Rough stock</th></tr></thead><tbody>${millRows}</tbody></table>
+      ${(() => {
+        const wide = r.lumber.flatMap((l) => l.pieces.filter((p) => p.boards > 1).map((p) => `${esc(l.name)} ${fmt(p.width)} → ${p.boards} boards about ${fmt(p.width / p.boards)} wide`));
+        return wide.length ? `<p class="note"><b>Wider than your ${fmt(S.jointerWidth)} jointer:</b> ${wide.join('; ')}. Use narrower boards, or rip a wide one before jointing. The total width is what matters.</p>` : '';
+      })()}
       <p class="note">Widths include one ${fmt(S.kerfRip)} kerf per strip. The lumber list adds ${S.waste}% for defects, so buy ${r.total.bfBuy.toFixed(2)} bf in all.</p>`
     );
 
@@ -217,8 +221,11 @@
       add(
         `glue1-${p.id}`,
         `Glue up ${pn(p)}`,
-        `Glue the ${p.strips.length} strips side by side in this order, left to right.`,
+        p.sections
+          ? `This panel is ${fmt(p.width)} wide, more than your ${fmt(S.planerWidth)} planer. Glue it in ${p.sections.length} sections, plane each one, then glue the sections together.`
+          : `Glue the ${p.strips.length} strips side by side in this order, left to right.`,
         `${turnNote(p)}
+        ${p.sections ? `<ul class="checks">${p.sections.map((x, k) => `<li>Section ${k + 1}: strips ${x.from + 1}–${x.to + 1}, ${fmt(x.width)} wide</li>`).join('')}<li>After planing, glue the sections edge to edge with cauls across the joint to keep the faces flush.</li></ul>` : ''}
         <ol class="order">${order}</ol>
         <p class="note">Glued size: ${fmt(p.width)} wide × ${fmt(p.length)} long × ${fmt(p.milled)} thick. Keep the strips flush on the faces to save planing.</p>`
       );
@@ -229,10 +236,44 @@
       'plane',
       many ? 'Plane the panels to thickness' : 'Plane the panel to thickness',
       'Scrape off the glue and plane both faces.',
-      `<ul class="checks">${r.panels.map((p) => `<li>${many ? `Panel ${esc(p.name)}: ` : ''}${fmt(p.milled)} → <b>${fmt(p.thickness)}</b></li>`).join('')}</ul>`
+      `<ul class="checks">${r.panels.map((p) => `<li>${many ? `Panel ${esc(p.name)}: ` : ''}${fmt(p.milled)} → <b>${fmt(p.thickness)}</b>${p.sections ? ` (plane each of the ${p.sections.length} sections, then join them)` : ''}</li>`).join('')}</ul>`
     );
 
+    // 6b. Thin and thick panels that repeat together are glued into one stack.
+    const K = r.stack;
+    if (K) {
+      const names = K.layers.map((l) => `panel ${esc(l.name)}`);
+      const pre = K.layers.filter((l) => l.loose);
+      const rowNums = (id) => r.rows.map((row, i) => (row.panel === id && !K.rows[i] ? i + 1 : 0)).filter(Boolean).join(', ');
+      add(
+        'stack',
+        `Glue ${names.slice(1).join(' and ')} onto ${names[0]}`,
+        `Glue the panels face to face into one stack, ${fmt(K.thickness)} thick. Every slice you cut from it will already hold ${K.layers.map((l) => esc(l.name)).join(' + ')}, so there's one crosscut instead of ${K.unit}.`,
+        `${pre.length ? `<p><b>First:</b> ${pre.map((l) => `square one end of panel ${esc(l.name)} and crosscut ${l.loose} slice${l.loose > 1 ? 's' : ''} ${fmt(K.sliceLength)} long off it for row${l.loose > 1 ? 's' : ''} ${rowNums(l.id)}`).join('; ')}. Set ${pre.reduce((n, l) => n + l.loose, 0) > 1 ? 'them' : 'it'} aside.</p>` : ''}
+        <ol class="order">${K.layers.map((l, i) => `<li>Panel ${esc(l.name)} · ${fmt(l.thickness)}${i === 0 ? ' (on top)' : ''}${l.rollOver ? ' · <b>rolled over</b>, so its top face is down and its edges swap sides' : ''}</li>`).join('')}</ol>
+        <ul class="checks">
+          <li>Line up the strip glue lines on the edges and keep the ends and edges flush.</li>
+          <li>Clamp it flat with cauls and let it cure. Stack size: ${fmt(K.width)} wide × ${fmt(K.length)} long × ${fmt(K.thickness)} thick.</li>
+          ${K.thickness > 2.5 * 25.4 ? `<li>The stack is ${fmt(K.thickness)} thick. Check your saw can crosscut that deep in one pass.</li>` : ''}
+        </ul>`
+      );
+    }
+
     // 7. Crosscut.
+    if (K) {
+      const others = r.panels.filter((p) => !K.layers.some((l) => l.id === p.id));
+      add(
+        'crosscut',
+        'Square the ends and crosscut the slices',
+        `Square one end of the stack, then cut ${K.reps} slices ${fmt(K.sliceLength)} long. That's your ${fmt(design.thickness)} board plus ${fmt(S.flatten)} to flatten.`,
+        `<table class="t"><thead><tr><th>From</th><th>Slices</th><th>Slice length</th></tr></thead><tbody>
+        <tr><td>Stack ${K.layers.map((l) => esc(l.name)).join(' + ')}</td><td>${K.reps}</td><td>${fmt(K.sliceLength)}</td></tr>
+        ${K.layers.filter((l) => l.loose).map((l) => `<tr><td>Panel ${esc(l.name)} (cut before stacking)</td><td>${l.loose}</td><td>${fmt(K.sliceLength)}</td></tr>`).join('')}
+        ${others.map((p) => `<tr><td>Panel ${esc(p.name)}</td><td>${p.slices}</td><td>${fmt(p.sliceLength)}</td></tr>`).join('')}
+        </tbody></table>
+        <p class="note">${r.total.cuts} cuts × ${fmt(S.kerfCross)} = ${fmt(r.total.crossKerf)} of length lost. Use a stop block so every slice is the same, and number the top of each slice as it comes off the saw.</p>`
+      );
+    } else
     add(
       'crosscut',
       'Square the ends and crosscut the slices',
@@ -249,7 +290,7 @@
     add(
       'layout',
       'Lay out the slices end grain up',
-      `Stand each slice on end and arrange them top to bottom in this order.${flips ? ` ${flips} slices get flipped end for end.` : ''}${shifts ? ` ${shifts} slices slide ${fmt(r.shift)} to the side.` : ''}`,
+      `Stand each slice on end and arrange them top to bottom in this order.${K ? ` Each stack slice already holds ${K.unit} rows.` : ''}${flips && !K ? ` ${flips} slices get flipped end for end.` : ''}${shifts ? ` ${shifts} slices slide ${fmt(r.shift)} to the side.` : ''}`,
       `<p class="note">The numbers in the picture are the slice numbers. \u21c4 means flip that slice end for end.</p>
       <p class="note">Dry-fit the whole board and check it against the picture before any glue goes on.</p>`
     );

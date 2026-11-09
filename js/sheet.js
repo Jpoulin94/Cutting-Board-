@@ -371,6 +371,11 @@
       .join('');
 
     const steps = [];
+    const K = r.stack;
+    if (K) {
+      const pre = K.layers.filter((l) => l.loose).map((l) => `${l.loose} slice${l.loose > 1 ? 's' : ''} off panel ${esc(l.name)}`);
+      steps.push(`<b>Stack before crosscutting:</b> ${pre.length ? `first cut ${pre.join(' and ')} for the end rows, then ` : ''}plane the panels and glue ${K.layers.map((l, i) => `${esc(l.name)}${i === 0 ? ' (top)' : ''}${l.rollOver ? ' rolled over' : ''}`).join(' onto ')} face to face into one ${fmt(K.thickness)} stack. Crosscut ${K.reps} slices from the stack: each already holds ${K.unit} rows. ${r.total.cuts} crosscuts in all.`);
+    }
     steps.push(`Square one end of each panel, then crosscut slices ${fmt(r.panels[0] ? r.panels[0].sliceLength : 0)} long. That's the board thickness of ${fmt(design.thickness)} plus ${fmt(S.flatten)} for flattening.`);
     steps.push('Number each slice in pencil on its top as you cut it, so the order matches the diagram.');
     if (r.grain === 'matched') steps.unshift('Grain is matched: at glue-up 1, set every stick with its growth rings facing the same way (mark the same face of each stick before ripping), except sticks you\u2019re turning on purpose.');

@@ -91,7 +91,10 @@
     }
     ctx.restore();
 
-    const sorted = [...boxes].sort((a, b) => depth(a) - depth(b));
+    // Stacked layers: whole groups far to near, bottom layer first within each.
+    const sorted = [...boxes].sort((a, b) =>
+      a.group != null && b.group != null ? (a.group !== b.group ? b.group - a.group : a.layer - b.layer || depth(a) - depth(b)) : depth(a) - depth(b)
+    );
     for (const b of sorted) {
       if (b.prism) {
         drawPrism(ctx, b, sp, P, facing, s);
@@ -412,8 +415,39 @@
       out.plane = { boxes };
     }
 
+    // Panels glued face to face into one stack, first row on top.
+    const K = r.stack;
+    const stackBoxes = (y0, len, gap) => {
+      const boxes = [];
+      let z = 0;
+      [...K.layers].reverse().forEach((l, li) => {
+        const p = r.panels.find((x) => x.id === l.id);
+        let x = 0;
+        const seq = l.rollOver ? [...p.strips].reverse() : p.strips;
+        seq.forEach((st, i) => {
+          const dec = xdec(st, p, p.thickness);
+          boxes.push({ x, y: y0, z, w: st.rip, d: len, h: p.thickness, group: y0, layer: li, species: st.species, grain: 'y', seed: i * 13 + 7, xdecor: dec && l.rollOver ? dec.map((q) => ({ ...q, poly: q.poly.map(([u, v]) => [st.rip - u, p.thickness - v]) })) : dec });
+          x += st.rip;
+        });
+        z += p.thickness + gap;
+      });
+      return boxes;
+    };
+    if (K) {
+      out.stack = { boxes: stackBoxes(0, K.length, 0), yaw: 32, pitch: 28 };
+      const boxes = [];
+      const labels = [];
+      const n = Math.min(K.reps, 12);
+      const g = gapOf(K.sliceLength) * 3;
+      for (let j = 0; j < n; j++) {
+        boxes.push(...stackBoxes(j * (K.sliceLength + g), K.sliceLength, 0));
+        labels.push({ x: -IN * 0.6, y: j * (K.sliceLength + g) + K.sliceLength / 2, z: K.thickness, text: String(j + 1) });
+      }
+      out.crosscut = { boxes, labels };
+    }
+
     // The first panel crosscut into slices, pulled apart.
-    {
+    if (!K) {
       const p = r.panels[0];
       const boxes = [];
       const labels = [];

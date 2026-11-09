@@ -10,7 +10,7 @@ The app is a single web page with nothing to install and no internet connection 
 2. Open `index.html` in Chrome, Edge, Firefox or Safari.
 
 ### The screen
-- **Left**: the pattern, the board size, the strips left to right, and **Kerf and allowances**.
+- **Left**: the pattern, the board size, the strips left to right, and **Your tools, kerf and allowances**.
 - **Stock designs**: tap **Hide** on any you don't want; **Show hidden designs** brings them back. **File → Save as a stock design…** adds your current board to the top of the list (tap **Delete** to remove it). Your stock designs are included in the backup file.
 - **Fit to a size** (next to Board): type the finished width and length you want, and pick from a few strip counts that keep your pattern.
 - **Edges and handles**: preview a juice groove, a bevel on the top edges, finger grips or hand holes. These only change the picture, not the cut list.
@@ -39,7 +39,7 @@ Click any block in the 3D preview. Every block cut from that strip lights up, an
 - The two outside strips are ripped wider by the edge trim, so the finished board comes out at the size shown.
 - Stock width per species adds one rip kerf per strip. Lumber is priced at the rough thickness that mills to what you need (4/4, 5/4, 6/4, 8/4…), plus the waste factor.
 
-All of these are under **Kerf and allowances**, including separate rip and crosscut kerfs. **Use these for new boards** makes them your defaults.
+All of these are under **Your tools, kerf and allowances**, including separate rip and crosscut kerfs. **Use these for new boards** makes them your defaults.
 
 ### Species and cost
 **Species** opens your library: colour, price per board foot, where you last bought it, the date and notes. Cost appears once prices are filled in.

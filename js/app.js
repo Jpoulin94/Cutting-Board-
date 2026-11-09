@@ -365,7 +365,9 @@
         <option value="holes"${X.handles === 'holes' ? ' selected' : ''}>Hand holes through the ends</option></select></div>`)}
     </section>`;
 
-    html += `<details class="section" ${prefs.allowOpen ? 'open' : ''} data-allow><summary>Kerf and allowances</summary>
+    html += `<details class="section" ${prefs.allowOpen ? 'open' : ''} data-allow><summary>Your tools, kerf and allowances</summary>
+      ${field('Jointer width', lenInput('set:jointerWidth', S.jointerWidth), 'Widest board it takes. 0 to ignore')}
+      ${field('Planer width', lenInput('set:planerWidth', S.planerWidth), 'Widest panel it takes. 0 to ignore')}
       ${field('Rip kerf', lenInput('set:kerfRip', S.kerfRip), 'Blade width for ripping strips')}
       ${field('Crosscut kerf', lenInput('set:kerfCross', S.kerfCross), 'Blade width for the final crosscuts')}
       ${field('Flattening', lenInput('set:flatten', S.flatten), 'Added to each slice’s length')}

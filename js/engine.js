@@ -43,6 +43,8 @@
     endTrim: IN,
     edgeTrim: IN / 4,
     waste: 15,
+    jointerWidth: 8 * IN, // widest board your jointer takes
+    planerWidth: 13 * IN, // widest panel your planer takes
   };
 
   // An accent strip glued into a lengthwise angled rip in each stick, so
@@ -540,6 +542,49 @@
       });
     }
 
+    // Thin and thick panels that repeat together (A B A B…) are glued face
+    // to face first and crosscut as one stack, so each slice already holds
+    // a whole repeat. Rows left over at the end are cut from their own panel
+    // before it goes into the stack.
+    let stack = null;
+    {
+      const rows = g.rows;
+      const n = rows.length;
+      const MAX_STACK = 3 * IN; // deeper than this won't crosscut in one pass
+      let best = null;
+      for (let s0 = 0; s0 <= Math.min(3, n - 4); s0++) {
+        for (let u = 2; u <= 6 && s0 + 2 * u <= n; u++) {
+          const unit = rows.slice(s0, s0 + u);
+          if (new Set(unit.map((r) => r.panel)).size !== u) continue;
+          const same = (r, m) => r.panel === m.panel && !!r.flip === !!m.flip && Math.abs((r.offset || 0) - (unit[0].offset || 0)) < 1e-6;
+          let reps = 0;
+          while (s0 + (reps + 1) * u <= n && rows.slice(s0 + reps * u, s0 + (reps + 1) * u).every((r, k) => same(r, unit[k]))) reps++;
+          if (reps < 2) continue;
+          const layers = unit.map((r) => panels.find((p) => p.id === r.panel));
+          if (layers.some((p) => !p) || layers.some((p) => Math.abs(p.width - layers[0].width) > 1)) continue;
+          if (sum(layers.map((p) => p.thickness)) > MAX_STACK) continue;
+          if (!best || reps * u > best.reps * best.u) best = { s0, u, reps, unit, layers };
+        }
+      }
+      if (best) {
+        const { s0, u, reps, unit, layers } = best;
+        const inStack = (i) => i >= s0 && i < s0 + reps * u;
+        const loose = rows.map((r, i) => (inStack(i) ? null : r.panel)).filter(Boolean);
+        stack = {
+          layers: layers.map((p, i) => ({ id: p.id, name: p.name, thickness: p.thickness, rollOver: !!unit[i].flip, loose: loose.filter((x) => x === p.id).length })),
+          reps,
+          unit: u,
+          first: s0,
+          rows: rows.map((r, i) => inStack(i)),
+          thickness: sum(layers.map((p) => p.thickness)),
+          width: layers[0].width,
+          length: S.endTrim + reps * (sliceLength + S.kerfCross),
+          sliceLength,
+          looseRows: loose.length,
+        };
+      }
+    }
+
     // Rip list and lumber, per species.
     const spMap = {};
     for (const p of panels) {
@@ -560,6 +605,21 @@
         e.rips.push({ key: `${p.id}|accent`, panel: `${p.name} accent`, accent: true, width: A.thickness, length: p.length, thickness: p.accentPrep.stripWidth + S.panelPlane, count });
       }
     }
+    // Panels wider than the planer are glued up in sections, each planed,
+    // then the sections glued together.
+    for (const p of panels) {
+      if (!(S.planerWidth > 0) || p.width <= S.planerWidth) continue;
+      const sections = [];
+      let cur = null;
+      p.strips.forEach((st, i) => {
+        if (!cur || cur.width + st.rip > S.planerWidth) sections.push((cur = { from: i, to: i, width: 0 }));
+        cur.to = i;
+        cur.width += st.rip;
+      });
+      p.sections = sections;
+      warnings.push(`Panel ${p.name} is wider than your planer, so the build steps glue it in ${sections.length} sections, plane each, then join them.`);
+      if (sections.some((x) => x.width > S.planerWidth)) warnings.push(`A strip in panel ${p.name} is wider than your planer.`);
+    }
     const lumber = [];
     for (const e of Object.values(spMap)) {
       const sp = CB.species ? CB.species.byId(speciesList || [], e.species) : { name: e.species, price: null };
@@ -573,7 +633,8 @@
         const rough = roughFor(thickness);
         const pbf = (rough.inches * (stockWidth / IN) * (length / IN)) / 144;
         bf += pbf;
-        pieces.push({ panel: panelName, width: stockWidth, length, thickness, rough, bf: pbf });
+        const boards = S.jointerWidth > 0 ? Math.max(1, Math.ceil(stockWidth / S.jointerWidth - 1e-9)) : 1;
+        pieces.push({ panel: panelName, width: stockWidth, length, thickness, rough, bf: pbf, boards });
       }
       const bfBuy = bf * (1 + S.waste / 100);
       lumber.push({
@@ -597,13 +658,14 @@
       bfBuy: sum(lumber.map((l) => l.bfBuy)),
       cost: sum(priced.map((l) => l.cost)),
       unpriced: lumber.filter((l) => l.cost == null).map((l) => l.name),
-      cuts: sum(panels.map((p) => p.cuts)),
+      cuts: stack ? stack.reps + stack.looseRows : sum(panels.map((p) => p.cuts)),
       crossKerf: sum(panels.map((p) => p.crossKerf)),
       ripKerf: sum(panels.map((p) => p.ripKerf)),
       rips: sum(panels.map((p) => p.strips.length)) + sum(panels.map((p) => (p.accentPrep ? p.accentPrep.sticks : 0))),
       angleRips: sum(panels.map((p) => (p.accentPrep ? p.accentPrep.sticks : 0))),
     };
     total.ripKerf += total.angleRips * S.kerfRip;
+    if (stack) total.crossKerf = total.cuts * S.kerfCross;
 
     const skew = g.panels.some((p) => p.strips.some((st) => (st.rot === 90 || st.rot === 270) && Math.abs(st.width - p.thickness) > 0.5));
     if (skew) warnings.push('A stick turned 90\u00b0 or 270\u00b0 swaps its width and depth. Make the strip width match the row depth so the squares stay square.');
@@ -625,6 +687,7 @@
       },
       blocks,
       panels,
+      stack,
       lumber,
       total,
       warnings,
@@ -872,6 +935,7 @@
     const warnings = [];
     if (s < IN / 2) warnings.push('Sticks this small are hard to cut safely. Use a push block and a zero-clearance insert, or make them bigger.');
     const shortest = Math.min(...panelsT.map((p) => p.length));
+    for (const pan of panelsT) if (S.planerWidth > 0 && pan.width > S.planerWidth) warnings.push(`Row panel ${pan.name} is wider than your planer. Use fewer sticks per panel or flatten it with a drum sander.`);
     if (shortest < 18 * IN) warnings.push('Some row panels are short. Rip the sticks longer for safety; the extra length makes more boards.');
     return {
       pattern: d.pattern,

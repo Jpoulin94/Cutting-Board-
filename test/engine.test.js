@@ -387,3 +387,25 @@ test('turning single pieces gives those rows their own panel', () => {
   const r2 = engine.compute(engine.normalizeDesign({ ...d, paint: { turns: all } }), sp);
   assert.deepEqual(r2.panels.map((p) => p.name), ['A']);
 });
+
+test('repeating thin and thick panels are stacked before crosscutting', () => {
+  const CB = require("./load");
+  const pr = CB.presets.PRESETS.find((p) => p.name === 'Window pane');
+  const r = engine.compute(CB.presets.make(pr), sp);
+  assert.ok(r.stack);
+  assert.equal(r.stack.reps, 5);
+  assert.equal(r.stack.layers.find((l) => l.name === 'A').loose, 1);
+  assert.equal(r.total.cuts, 6);
+  const steps = CB.planner.steps(CB.presets.make(pr), r, sp, { units: "in", precision: 16 }).map((s) => s.key);
+  assert.ok(steps.indexOf('stack') > steps.indexOf('plane') && steps.indexOf('stack') < steps.indexOf('crosscut'));
+});
+
+test('panels wider than the planer are glued in sections', () => {
+  const d = engine.normalizeDesign({ ...engine.newDesign('w'), pattern: 'stripes', strips: Array.from({ length: 12 }, (_, i) => ({ width: 25.4 * 1.5, species: i % 2 ? 'sp_maple' : 'sp_walnut' })) });
+  const r = engine.compute(d, sp);
+  assert.ok(r.panels[0].width > 13 * 25.4);
+  assert.ok(r.panels[0].sections.length >= 2);
+  assert.ok(r.panels[0].sections.every((x) => x.width <= 13 * 25.4));
+  assert.ok(r.lumber.some((l) => l.pieces.some((p) => p.boards > 1)));
+  assert.ok(r.warnings.some((w) => /planer/.test(w)));
+});
