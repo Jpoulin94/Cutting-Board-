@@ -744,6 +744,13 @@ table.t tfoot td {
   overflow-y: auto;
   width: min(880px, calc(100vw - 64px));
 }
+.stock-head {
+  margin: 4px 0 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
 .stock-item {
   position: relative;
   display: flex;

@@ -293,6 +293,8 @@
           <option value="rows"${T.arrange === 'rows' ? ' selected' : ''}>Two woods, alternating rows</option>
           <option value="single"${T.arrange === 'single' ? ' selected' : ''}>One wood</option></select></div>`)}
         ${T.woods.slice(0, n).map((w, i) => field(names[i], speciesSelect(`tile:${i}`, w.species))).join('')}
+        ${cubes ? '' : `${field('Border on each hexagon', lenInput('tile:border', T.border, { placeholder: '0' }), T.border > 0 ? `Lines between hexagons are ${fmt(T.border * 2)}` : '0 for none, or try 1/8"')}
+          ${T.border > 0 ? field('Border wood', speciesSelect('tile:3', T.woods[3].species)) : ''}`}
         <p class="blurb">${cubes ? 'Light on top and darker on the sides makes the cubes pop. Tap a piece in the preview to change its wood.' : 'Tap a hexagon in the preview to change that wood everywhere.'}</p>
       </section>`;
     } else if (!plaid) {
@@ -496,7 +498,7 @@
       const count = result.blocks.filter((b) => CB.preview.sameRef(b.ref, ref)).length;
       const cubes = design.pattern === 'cubes';
       el.hidden = false;
-      el.innerHTML = `<h4>${cubes ? ['Top faces', 'Left faces', 'Right faces'][ref.tile] : `Wood ${ref.tile + 1}`}</h4>
+      el.innerHTML = `<h4>${ref.tile === 3 ? 'Borders' : cubes ? ['Top faces', 'Left faces', 'Right faces'][ref.tile] : `Wood ${ref.tile + 1}`}</h4>
         <p>${count} pieces on the board use this wood. Pick a species to change them all.</p>
         <div class="swatches">${speciesList
           .map((sp) => `<button data-pick="${sp.id}" aria-pressed="${sp.id === s.species}"><i class="sw" style="background:${sp.color}"></i>${esc(sp.name)}</button>`)
@@ -527,7 +529,7 @@
     if (ds.len !== undefined) {
       const v = units.parseLength(t.value, prefs.units);
       const key = ds.len;
-      const allowZero = key.startsWith('set:');
+      const allowZero = key.startsWith('set:') || key === 'tile:border';
       if (!Number.isFinite(v) || v < 0 || (!allowZero && v === 0)) {
         t.classList.add('bad');
         toast('Enter a size like 1-1/2, 1.5 or 38mm.');
@@ -816,19 +818,58 @@
     };
     let showHidden = false;
     const hiddenSet = () => new Set(prefs.hiddenStock || []);
+    const mineCard = (m) => {
+      const r = engine.compute(engine.normalizeDesign(m.design), speciesList);
+      return `<div class="stock-item">
+        <button type="button" class="stock-card" data-mystock="${esc(m.id)}">
+          ${sheet.boardSvg(r, speciesList, sheet.codes(speciesList, []), 150).replace(/<text[^>]*>[^<]*<\/text>/g, '')}
+          <b>${esc(m.name)}</b>
+          <small>${fmt(r.board.width)} × ${fmt(r.board.length)} · ${esc(engine.PATTERNS[m.design.pattern] ? engine.PATTERNS[m.design.pattern].label : '')}</small>
+          ${m.blurb ? `<span>${esc(m.blurb)}</span>` : ''}
+        </button>
+        <button type="button" class="stock-hide small ghost" data-mystock-del="${esc(m.id)}">Delete</button>
+      </div>`;
+    };
     const render = () => {
       const hid = hiddenSet();
+      const mine = prefs.myStock || [];
       const list = CB.presets.PRESETS.map((p, i) => [p, i]);
       const shown = list.filter(([p]) => !hid.has(p.name));
       const gone = list.filter(([p]) => hid.has(p.name));
-      return `<div class="stock-grid">${shown.map(([p, i]) => card(p, i, false)).join('')}</div>
+      return `<p class="row-actions" style="margin:0 0 12px"><button type="button" class="small" data-stock-save>+ Save this board as a stock design</button></p>
+        ${mine.length ? `<h4 class="stock-head">Your designs</h4><div class="stock-grid">${mine.map(mineCard).join('')}</div><h4 class="stock-head">Built in</h4>` : ''}
+        <div class="stock-grid">${shown.map(([p, i]) => card(p, i, false)).join('')}</div>
         ${gone.length ? `<p class="row-actions" style="margin-top:14px"><button type="button" class="small" data-stock-toggle>${showHidden ? 'Hide the hidden designs' : `Show ${gone.length} hidden design${gone.length > 1 ? 's' : ''}`}</button></p>` : ''}
         ${showHidden && gone.length ? `<div class="stock-grid">${gone.map(([p, i]) => card(p, i, true)).join('')}</div>` : ''}`;
     };
     let chosen = null;
     await dialog('Stock designs', `<p class="muted" style="margin:0 0 12px">Pick one to start a new board. Your kerf and allowance settings carry over, and you can change anything after. Hide the ones you don't want.</p><div class="stock-wrap">${render()}</div>`, [{ label: 'Close', value: 'close', cls: 'ghost' }], (dlg) => {
       const wrap = $('.stock-wrap', dlg);
-      wrap.onclick = (e) => {
+      wrap.onclick = async (e) => {
+        if (e.target.closest('[data-stock-save]')) {
+          chosen = { save: true };
+          dlg.close('save');
+          return;
+        }
+        const delBtn = e.target.closest('[data-mystock-del]');
+        if (delBtn) {
+          if (delBtn.dataset.armed !== '1') {
+            delBtn.dataset.armed = '1';
+            delBtn.textContent = 'Tap again to delete';
+            return;
+          }
+          prefs.myStock = (prefs.myStock || []).filter((m) => m.id !== delBtn.dataset.mystockDel);
+          storage.savePrefs(prefs);
+          wrap.innerHTML = render();
+          return;
+        }
+        const mineBtn = e.target.closest('[data-mystock]');
+        if (mineBtn) {
+          const m = (prefs.myStock || []).find((x) => x.id === mineBtn.dataset.mystock);
+          if (m) chosen = { custom: m };
+          dlg.close('pick');
+          return;
+        }
         const hideBtn = e.target.closest('[data-stock-hide]');
         if (hideBtn) {
           const name = CB.presets.PRESETS[Number(hideBtn.dataset.stockHide)].name;
@@ -852,8 +893,12 @@
       };
     });
     if (!chosen) return;
+    if (chosen.save) return saveAsStock();
     if (!(await guardUnsaved())) return;
-    const made = CB.presets.make(chosen, settings);
+    const made = chosen.custom
+      ? engine.normalizeDesign({ ...JSON.parse(JSON.stringify(chosen.custom.design)), id: engine.uid('bd'), name: chosen.custom.name })
+      : CB.presets.make(chosen, settings);
+    if (chosen.custom) chosen = chosen.custom;
     const needed = [...new Set([...made.strips, ...made.panels.flatMap((p) => p.strips), ...made.tile.woods].map((x) => x.species).concat(made.accent.enabled ? [made.accent.species] : []))];
     const missing = CB.species.defaults().filter((x) => needed.includes(x.id) && !speciesList.some((y) => y.id === x.id));
     if (missing.length) {
@@ -863,6 +908,31 @@
     load(made);
     pristine = snapshot();
     toast(`Started \u201c${chosen.name}\u201d. Save it to keep it.`);
+  }
+
+  // Keep the current board as one of your own stock designs.
+  async function saveAsStock() {
+    const res = await dialog(
+      'Save as a stock design',
+      `<p class="muted" style="margin:0 0 12px">It shows up at the top of Stock designs, so you can start new boards from it. Your woods, sizes and settings are kept.</p>
+      ${field('Name', `<div class="inp"><input type="text" data-stock-name value="${esc(design.name)}" /></div>`)}
+      ${field('Note', `<div class="inp"><input type="text" data-stock-note placeholder="Optional" /></div>`)}`,
+      [{ label: 'Cancel', value: 'cancel', cls: 'ghost' }, { label: 'Save', value: 'save', cls: 'primary' }],
+      (dlg) => {
+        const n = $('[data-stock-name]', dlg);
+        n.focus();
+        n.select();
+      }
+    );
+    if (res !== 'save') return;
+    const name = ($('#dialog [data-stock-name]').value || '').trim() || design.name;
+    const blurb = ($('#dialog [data-stock-note]').value || '').trim();
+    const { id, savedAt, ...rest } = JSON.parse(JSON.stringify(design));
+    const list = (prefs.myStock || []).filter((m) => m.name !== name);
+    list.unshift({ id: engine.uid('st'), name, blurb, design: { ...rest, name } });
+    prefs.myStock = list;
+    storage.savePrefs(prefs);
+    toast(`Saved “${name}” to your stock designs.`);
   }
 
   // ---------- strip fitter ----------
@@ -1078,6 +1148,7 @@
       load(freshDesign('Untitled board'));
       pristine = snapshot();
     } else if (kind === 'stock') openStock();
+    else if (kind === 'saveStock') saveAsStock();
     else if (kind === 'open') openSaved();
     else if (kind === 'duplicate') {
       design = engine.normalizeDesign({ ...JSON.parse(JSON.stringify(design)), id: engine.uid('bd'), name: `${design.name} copy` });

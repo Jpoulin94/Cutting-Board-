@@ -316,3 +316,22 @@ test('honeycomb and 3D cubes cover the board and build row by row', () => {
     assert.ok(r.board.width > 0 && r.lumber.length > 0, p.name);
   }
 });
+
+test('bordered honeycomb: core plus six border strips per hexagon', () => {
+  const sp = species.defaults();
+  const { planner } = require('./load');
+  const d = engine.normalizeDesign({ ...engine.newDesign('b'), pattern: 'honeycomb', tile: { ...engine.DEFAULT_TILE, border: IN / 8 } });
+  const r = engine.compute(d, sp);
+  const B = r.tiles.border;
+  near(B.coreSide, IN - (2 * IN) / 8 / Math.sqrt(3), 'core side');
+  assert.equal(B.strips, r.tiles.sticks * 6);
+  const border = r.lumber.find((l) => l.species === B.species);
+  assert.equal(border.rips.filter((x) => x.border).reduce((a, x) => a + x.count, 0), B.strips);
+  const areaOf = (poly) => Math.abs(poly.reduce((a, p, i) => { const q = poly[(i + 1) % poly.length]; return a + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
+  const covered = r.blocks.reduce((a, b) => a + areaOf(b.poly), 0);
+  assert.ok(Math.abs(covered / (r.board.width * r.board.length) - 1) < 1e-6);
+  const keys = planner.steps(d, r, sp, { units: 'in', precision: 16 }).map((s) => s.key);
+  assert.deepEqual(keys.slice(0, 5), ['mill', 'sticks', 'border-strips', 'border-glue', 'border-done']);
+  // No border on cubes.
+  assert.equal(engine.compute(engine.normalizeDesign({ ...d, pattern: 'cubes' }), sp).tiles.border, null);
+});

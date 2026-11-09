@@ -53,24 +53,14 @@
       design: { pattern: 'cubes', thickness: 1.5 * IN, tile: tile('M W C', 1) },
     },
     {
-      name: 'Dark 3D cubes',
-      blurb: 'Maple tops over wenge and walnut sides for strong shadows.',
-      design: { pattern: 'cubes', thickness: 1.5 * IN, tile: tile('M G W', 1.25) },
-    },
-    {
-      name: 'Purpleheart cubes',
-      blurb: 'Maple, purpleheart and walnut cubes.',
-      design: { pattern: 'cubes', thickness: 1.5 * IN, tile: tile('M P W', 1) },
-    },
-    {
-      name: 'Zebrawood cubes',
-      blurb: 'Zebrawood tops with walnut and wenge sides.',
-      design: { pattern: 'cubes', thickness: 1.5 * IN, tile: tile('Z W G', 1.25) },
-    },
-    {
       name: 'Honeycomb',
       blurb: 'Maple, walnut and cherry hexagons, no two alike touching.',
       design: { pattern: 'honeycomb', thickness: 1.5 * IN, tile: tile('M W C', 1) },
+    },
+    {
+      name: 'Bordered honeycomb',
+      blurb: 'Maple, walnut and cherry hexagons, each with a 1/8" purpleheart border.',
+      design: { pattern: 'honeycomb', thickness: 1.5 * IN, tile: { ...tile('M W C P', 1.25), border: IN / 8 } },
     },
     {
       name: 'Walnut and maple honeycomb',

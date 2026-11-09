@@ -506,7 +506,7 @@
     const IN = 25.4;
     const t = r.tiles;
     const cubes = t.kind === 'cubes';
-    const s = t.size;
+    const s = t.border ? t.border.coreSide : t.size;
     const sh = t.shape;
     const endPts = cubes
       ? [[s / 2, 0], [s * 1.5, 0], [s, sh.thickness], [0, sh.thickness]]
@@ -538,6 +538,36 @@
         x += s;
       });
       out.sticks = { boxes };
+    }
+
+    // Borders: thin strips, then six of them around one core, then trimmed.
+    if (t.border) {
+      const B = t.border;
+      const len = Math.min(t.panels[0].length, t.size * 6);
+      out['border-strips'] = {
+        boxes: [0, 1, 2, 3, 4].map((i) => ({ x: i * (B.width + IN * 0.5), y: 0, z: 0, w: B.width, d: len, h: B.stripWidth, species: B.species, grain: 'y', seed: i * 11 + 3 })),
+      };
+      const pan = t.panels[0];
+      const one = pan.end.filter((pc) => pc.stick === 0);
+      const core = one.find((pc) => !pc.border);
+      const ccx = core.poly.reduce((a, q) => a + q[0], 0) / core.poly.length;
+      const ccy = core.poly.reduce((a, q) => a + q[1], 0) / core.poly.length;
+      const place = (pc, gap, grow) => {
+        let poly = pc.poly;
+        if (pc.border && grow) {
+          // Untrimmed: the strip runs past the corners.
+          const [a, b, c, d] = poly;
+          const ex = (p, q, k) => [p[0] + (p[0] - q[0]) * k, p[1] + (p[1] - q[1]) * k];
+          poly = [ex(a, b, 0.12), ex(b, a, 0.12), ex(c, d, 0.25), ex(d, c, 0.25)];
+        }
+        const mx = poly.reduce((a, q) => a + q[0], 0) / poly.length - ccx;
+        const my = poly.reduce((a, q) => a + q[1], 0) / poly.length - ccy;
+        const m = Math.hypot(mx, my) || 1;
+        return poly.map(([x, y]) => [x + (mx / m) * gap, pan.depth - (y + (my / m) * gap)]);
+      };
+      const item = (pc, gap, grow, i) => prismItem(place(pc, gap, grow), 'y', 0, len, pc.species, i * 7 + 1, pc.rot);
+      out['border-glue'] = { boxes: one.map((pc, i) => item(pc, pc.border ? t.size * 0.45 : 0, true, i)), yaw: 32, pitch: 28 };
+      out['border-done'] = { boxes: one.map((pc, i) => item(pc, 0, false, i)), yaw: 32, pitch: 28 };
     }
 
     // Each row panel: the sticks glued side by side, lying down.

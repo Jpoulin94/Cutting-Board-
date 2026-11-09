@@ -36,8 +36,31 @@
       <table class="t"><thead><tr><th>Wood</th><th>Sticks</th><th>Length</th>${many ? '<th>For</th>' : ''}</tr></thead><tbody>${r.lumber
         .flatMap((l) => l.rips.map((x) => `<tr><td>${sw(l.species)}${esc(l.name)}</td><td>${x.count}</td><td>${fmt(x.length)}</td>${many ? `<td>${esc(x.panel)}</td>` : ''}</tr>`))
         .join('')}</tbody></table>
-      <p class="note">${cubes ? `At this angle each rip uses ${fmt(t.kerfAngle)} of width.` : 'Make a test stick first.'} Every side should be ${fmt(t.size)}. Use a push block.</p>`
+      <p class="note">${cubes ? `At this angle each rip uses ${fmt(t.kerfAngle)} of width.` : 'Make a test stick first.'} Every side should be ${fmt(t.border ? t.border.coreSide : t.size)}. Use a push block.</p>`
     );
+
+    if (t.border) {
+      const B = t.border;
+      const bName = esc(sp(B.species).name);
+      add(
+        'border-strips',
+        `Rip ${B.strips} ${bName} border strips`,
+        `Plane the ${bName} to ${fmt(B.stripWidth)} thick, then rip strips ${fmt(B.width)} thick off its edge.`,
+        `<p class="note">That's six strips for each of the ${t.sticks} hexagons, as long as the hexagon sticks. A thin-rip jig keeps every strip the same.</p>`
+      );
+      add(
+        'border-glue',
+        'Glue a border strip on each face',
+        'Glue strips on three faces that don\u2019t touch. When they cure, trim them flush with the faces next to them, then glue strips on the other three faces.',
+        `<p class="note">Six strips around one core. The strips are a little wider than the faces, so they stick out until you trim them.</p>`
+      );
+      add(
+        'border-done',
+        'Bevel back to a hexagon',
+        `Tilt the blade 30\u00b0 and trim the strips so the stick is a hexagon again, with ${fmt(B.outerSide)} sides.`,
+        `<p class="note">Each hexagon now has its own ${fmt(B.width)} border, so the line between two hexagons will be ${fmt(B.width * 2)}. Repeat for all ${t.sticks} sticks.</p>`
+      );
+    }
 
     for (const pan of t.panels) {
       add(

@@ -29,8 +29,9 @@
     width: 12 * IN,
     length: 16 * IN,
     size: IN, // side of each hexagon or diamond
-    woods: [{ species: 'sp_maple' }, { species: 'sp_walnut' }, { species: 'sp_cherry' }],
-    arrange: 'three', // honeycomb: 'three' (no two neighbours alike), 'rows', 'single'
+    woods: [{ species: 'sp_maple' }, { species: 'sp_walnut' }, { species: 'sp_cherry' }, { species: 'sp_purpleheart' }], // the 4th is the border
+    arrange: 'three',
+    border: 0, // honeycomb: thickness of the border strip on each face of each hexagon; 0 for none // honeycomb: 'three' (no two neighbours alike), 'rows', 'single'
     boards: 1, // boards sliced from one log
   };
 
@@ -164,7 +165,10 @@
       woods: DEFAULT_TILE.woods.map((w, i) => ({ species: woods[i] && typeof woods[i].species === 'string' && woods[i].species ? woods[i].species : w.species })),
       arrange: ['three', 'rows', 'single'].includes(tl.arrange) ? tl.arrange : 'three',
       boards: Math.max(1, Math.min(20, Math.round(num(tl.boards, 1)))),
+      border: nonneg(tl.border, 0),
     };
+    // Leave at least half the hexagon as core.
+    out.tile.border = Math.min(out.tile.border, (out.tile.size * Math.sqrt(3)) / 2 * 0.5);
     const x = d.details && typeof d.details === 'object' ? d.details : {};
     out.details = {
       groove: !!x.groove,
@@ -573,10 +577,14 @@
     const ox = W / 2 - Math.floor(cols / 2) * f;
     const oy = L / 2 - Math.floor(rowsN / 2) * 1.5 * s;
     const r0 = Math.floor(rowsN / 2);
-    const hex = (cx, cy) => [0, 1, 2, 3, 4, 5].map((k) => {
+    const hexOf = (cx, cy, side) => [0, 1, 2, 3, 4, 5].map((k) => {
       const a = ((-90 + 60 * k) * Math.PI) / 180;
-      return [cx + s * Math.cos(a), cy + s * Math.sin(a)];
+      return [cx + side * Math.cos(a), cy + side * Math.sin(a)];
     });
+    const hex = (cx, cy) => hexOf(cx, cy, s);
+    const bordered = !cubes && t.border > 0;
+    const bw = bordered ? t.border : 0;
+    const coreSide = s - (2 * bw) / Math.sqrt(3);
     const clipRect = (poly, x0, y0, x1, y1) => clip(clip(clip(clip(poly, 1, 0, x1), -1, 0, -x0), 0, 1, y1), 0, -1, -y0);
     const area = (poly) => Math.abs(poly.reduce((a, p, i) => { const q = poly[(i + 1) % poly.length]; return a + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
 
@@ -590,14 +598,21 @@
           // [top, left, right] faces: C,V5,V0,V1 / C,V3,V4,V5 / C,V1,V2,V3
           const C = [cx, cy];
           const faces = [[C, H[5], H[0], H[1]], [C, H[3], H[4], H[5]], [C, H[1], H[2], H[3]]];
-          faces.forEach((poly, k) => pieces.push({ poly, wood: k, rot: k * 120, row: r, col: c, key: `${r}:${c}:${k}` }));
+          faces.forEach((poly, k) => pieces.push({ poly, wood: k, rot: k * 120, row: r, col: c, key: `${r}:${c}:${k}`, parts: [{ poly, wood: k, rot: k * 120 }] }));
         } else {
           let wood = 0;
           if (t.arrange === 'three') {
             const q = c - Math.floor((r - r0) / 2);
             wood = ((q - (r - r0)) % 3 + 3) % 3;
           } else if (t.arrange === 'rows') wood = ((r - r0) % 2 + 2) % 2;
-          pieces.push({ poly: H, wood, rot: 0, row: r, col: c, key: `${r}:${c}` });
+          let parts = [{ poly: H, wood, rot: 0 }];
+          if (bordered) {
+            // A core hexagon with a border strip on each of its six faces.
+            const Hc = hexOf(cx, cy, coreSide);
+            parts = [{ poly: Hc, wood, rot: 0 }];
+            for (let k = 0; k < 6; k++) parts.push({ poly: [H[k], H[(k + 1) % 6], Hc[(k + 1) % 6], Hc[k]], wood: 3, rot: k * 60 + 120, border: k });
+          }
+          pieces.push({ poly: H, wood, rot: 0, row: r, col: c, key: `${r}:${c}`, parts });
         }
       }
     }
@@ -610,13 +625,14 @@
       const inLog = clipRect(pc.poly, -E, -E, W + E, L + E);
       if (inLog.length < 3 || area(inLog) < 1) continue;
       sticks.push(pc);
-      const vis = clipRect(pc.poly, 0, 0, W, L);
-      if (vis.length < 3 || area(vis) < 0.5) continue;
+      pc.parts.forEach((part, pi) => {
+      const vis = clipRect(part.poly, 0, 0, W, L);
+      if (vis.length < 3 || area(vis) < 0.5) return;
       const xs = vis.map((p) => p[0]);
       const ys = vis.map((p) => p[1]);
       const bx = Math.min(...xs);
       const by = Math.min(...ys);
-      const cxs = pc.poly.map((p) => p[0]);
+      const cxs = part.poly.map((p) => p[0]);
       const sx = Math.min(...cxs);
       blocks.push({
         x: bx,
@@ -624,15 +640,16 @@
         w: Math.max(...xs) - bx,
         d: Math.max(...ys) - by,
         poly: vis,
-        species: woods[pc.wood],
-        ref: { tile: pc.wood },
+        species: woods[part.wood],
+        ref: { tile: part.wood },
         row: pc.row,
         panel: 'T',
-        stick: `T:${pc.key}`,
+        stick: `T:${pc.key}:${pi}`,
         sx,
         sw: Math.max(...cxs) - sx,
-        rot: pc.rot,
+        rot: part.rot,
         flip: false,
+      });
       });
     }
 
@@ -643,7 +660,7 @@
     const kAngle = S.kerfRip / sin60; // kerf measured across the face at a 30 degree blade tilt
     const shape = cubes
       ? { name: 'diamond', thickness: s * sin60, width: s, faceWidth: s + kAngle, tilt: 30 }
-      : { name: 'hexagon', thickness: f, width: 2 * s, faceWidth: 2 * s + S.kerfRip, tilt: 30 };
+      : { name: 'hexagon', thickness: coreSide * Math.sqrt(3), width: 2 * coreSide, faceWidth: 2 * coreSide + S.kerfRip, tilt: 30 };
     const sliceLength = d.thickness + S.flatten;
 
     const usedRows = [...new Set(sticks.map((pc) => pc.row))].sort((a, b) => a - b);
@@ -677,7 +694,7 @@
       const ys = pan.sample.flatMap((pc) => pc.poly.map((q) => q[1]));
       const x0 = Math.min(...xs);
       const y0 = Math.min(...ys);
-      pan.end = pan.sample.map((pc) => ({ poly: pc.poly.map(([x, y]) => [x - x0, y - y0]), species: woods[pc.wood], rot: pc.rot }));
+      pan.end = pan.sample.flatMap((pc, i) => pc.parts.map((part) => ({ poly: part.poly.map(([x, y]) => [x - x0, y - y0]), species: woods[part.wood], rot: part.rot, stick: i, border: part.border != null })));
       delete pan.sample;
     }
 
@@ -712,9 +729,40 @@
       const bfBuy = bf * (1 + S.waste / 100);
       lumber.push({ species: e.species, name: sp.name, color: sp.color, price: sp.price, sticks: count, rips: ripsL, pieces: pieces2, bf, bfBuy, cost: sp.price == null ? null : bfBuy * sp.price, volumeM3: bfBuy * 0.00235974 });
     }
+    // Border strips: six per hexagon, ripped thin off the edge of a board
+    // as thick as the strip is wide.
+    let borderInfo = null;
+    if (bordered) {
+      const bsp = woods[3];
+      const stripW = s + IN / 8;
+      const thickness = stripW + S.panelPlane;
+      const rough = roughFor(thickness);
+      let e = lumber.find((l) => l.species === bsp);
+      if (!e) {
+        const sp = CB.species ? CB.species.byId(speciesList || [], bsp) : { name: bsp, price: null };
+        e = { species: bsp, name: sp.name, color: sp.color, price: sp.price, sticks: 0, rips: [], pieces: [], bf: 0 };
+        lumber.push(e);
+      }
+      let strips = 0;
+      for (const pan of panelsT) {
+        const n = pan.sticks.length * 6;
+        strips += n;
+        const width = n * (bw + S.kerfRip) + IN / 4;
+        const pbf = (rough.inches * (width / IN) * (pan.length / IN)) / 144;
+        e.bf += pbf;
+        e.pieces.push({ panel: `Row ${pan.name} border`, width, length: pan.length, thickness, rough, bf: pbf, border: true });
+        e.rips.push({ key: `${bsp}|${pan.id}|border`, panel: `Row ${pan.name} border`, border: true, width: bw, length: pan.length, thickness: stripW, count: n });
+      }
+      e.bfBuy = e.bf * (1 + S.waste / 100);
+      e.cost = e.price == null ? null : e.bfBuy * e.price;
+      e.volumeM3 = e.bfBuy * 0.00235974;
+      rips += strips;
+      borderInfo = { width: bw, species: bsp, strips, stripWidth: stripW, coreSide, outerSide: s };
+    }
     lumber.sort((a, b) => b.bf - a.bf);
     const priced = lumber.filter((l) => l.cost != null);
     const slices = sum(panelsT.map((p) => p.slices));
+    const coreSticks = sum(panelsT.map((p) => p.sticks.length));
     const total = {
       bf: sum(lumber.map((l) => l.bf)),
       bfBuy: sum(lumber.map((l) => l.bfBuy)),
@@ -724,8 +772,8 @@
       crossKerf: slices * S.kerfCross,
       ripKerf: cubes ? rips * kAngle : rips * S.kerfRip,
       rips,
-      angleRips: cubes ? rips : rips * 4,
-      sticks: rips,
+      angleRips: cubes ? rips : coreSticks * (bordered ? 10 : 4),
+      sticks: coreSticks,
     };
     const warnings = [];
     if (s < IN / 2) warnings.push('Sticks this small are hard to cut safely. Use a push block and a zero-clearance insert, or make them bigger.');
@@ -755,8 +803,9 @@
         boards: t.boards,
         sliceLength,
         kerfAngle: kAngle,
-        sticks: rips,
+        sticks: coreSticks,
         half: f / 2,
+        border: borderInfo,
       },
       lumber,
       total,

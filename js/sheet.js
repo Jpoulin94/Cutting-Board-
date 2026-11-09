@@ -145,14 +145,17 @@
     const H = Math.max(...ys);
     const k = Math.min(maxW / W, 26);
     const hexes = [];
+    let num = 0;
     const parts = pan.end
-      .map((pc, i) => {
+      .map((pc) => {
+        if (!pc.border) num += 1;
+        const i = num - 1;
         const sp = CB.species.byId(speciesList, pc.species);
         const cx = pc.poly.reduce((a, q) => a + q[0], 0) / pc.poly.length;
         const cy = pc.poly.reduce((a, q) => a + q[1], 0) / pc.poly.length;
         hexes.push(cx);
         return `<polygon points="${pc.poly.map(([x, y]) => `${(x * k).toFixed(1)},${(y * k).toFixed(1)}`).join(' ')}" fill="${sp.color}" stroke="#000" stroke-width="0.7"/>
-          <text x="${(cx * k).toFixed(1)}" y="${(cy * k + 4).toFixed(1)}" fill="${textOn(sp.color)}" font-size="${Math.max(8, Math.min(11, k * 0.4))}">${i + 1}</text>`;
+          ${pc.border ? '' : `<text x="${(cx * k).toFixed(1)}" y="${(cy * k + 4).toFixed(1)}" fill="${textOn(sp.color)}" font-size="${Math.max(8, Math.min(11, k * 0.4))}">${i + 1}</text>`}`;
       })
       .join('');
     return `<svg class="diagram" viewBox="-2 -2 ${W * k + 4} ${H * k + 4}" width="${W * k + 4}" height="${H * k + 4}" text-anchor="middle">${parts}</svg>`;
@@ -161,7 +164,7 @@
   // One stick's end, with its sizes, for honeycomb and 3D cubes.
   function stickSvg(t, color, fmt, px = 150) {
     const sh = t.shape;
-    const s = t.size;
+    const s = t.border ? t.border.coreSide : t.size;
     const k = px / (sh.width + s);
     const pts = t.kind === 'cubes'
       ? [[s / 2, 0], [s * 1.5, 0], [s, sh.thickness], [0, sh.thickness]]
@@ -210,8 +213,20 @@
       : [
           `Plane each board to ${fmt(t.shape.thickness)} thick (across the flats).`,
           `Rip blanks ${fmt(t.shape.width)} wide (point to point).`,
-          `Tilt the blade 30° and bevel all four corners, so every side is ${fmt(t.size)}.`,
+          `Tilt the blade 30\u00b0 and bevel all four corners, so every side is ${fmt(t.border ? t.border.coreSide : t.size)}.`,
         ];
+    const B = t.border;
+    const borderSection = B
+      ? `<section class="keep">
+        <h2>2b. Add the borders</h2>
+        <ol>
+          <li>Plane ${esc(CB.species.byId(speciesList, B.species).name)} to ${fmt(B.stripWidth)} thick and rip ${B.strips} border strips ${fmt(B.width)} thick off its edge.</li>
+          <li>Glue a strip on every other face of each hexagon (three faces that don't touch). Once cured, trim them flush with the faces next to them.</li>
+          <li>Glue strips on the other three faces, then bevel the stick back to a hexagon with ${fmt(B.outerSide)} sides.</li>
+        </ol>
+        <p class="muted">Each hexagon has its own border, so the line between two hexagons is ${fmt(B.width * 2)}.</p>
+      </section>`
+      : '';
     const panelBlocks = t.panels
       .map(
         (pan) => `<div class="keep">
@@ -265,6 +280,7 @@
           <tbody>${stickRows}</tbody>
         </table>
       </section>
+      ${borderSection}
       <section>
         <h2>3. Glue-up 1: row panels</h2>
         ${panelBlocks}
